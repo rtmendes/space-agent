@@ -40,6 +40,9 @@ Or run the server directly:
 node A1.js serve
 ```
 
+The web server binds to `0.0.0.0` by default so container hosts like Render can detect the open port.
+For a local-only bind, pass `--host 127.0.0.1`.
+
 ## Optional Packaging Toolchain
 
 Desktop and packaging features are installed separately so a normal source install stays lean.

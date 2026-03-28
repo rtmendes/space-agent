@@ -1,6 +1,6 @@
 const path = require("node:path");
 
-const DEFAULT_HOST = process.env.HOST || "127.0.0.1";
+const DEFAULT_HOST = process.env.HOST || "0.0.0.0";
 const DEFAULT_PORT = Number(process.env.PORT || 3000);
 const APP_ROOT_DIR = path.join(__dirname, "..", "app");
 const L0_DIR = path.join(APP_ROOT_DIR, "L0");

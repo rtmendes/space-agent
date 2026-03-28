@@ -36,14 +36,14 @@ export const help = {
   summary: "Start the local Agent One server.",
   usage: [
     "node A1.js serve",
-    "node A1.js serve --host 127.0.0.1 --port 3000"
+    "node A1.js serve --host 0.0.0.0 --port 3000"
   ],
   description:
     "Starts the local Node server that serves the browser app, proxies fetch requests, and owns SQLite access.",
   options: [
     {
       flag: "--host <host>",
-      description: 'Bind host. Defaults to env HOST or "127.0.0.1".'
+      description: 'Bind host. Defaults to env HOST or "0.0.0.0".'
     },
     {
       flag: "--port <port>",
