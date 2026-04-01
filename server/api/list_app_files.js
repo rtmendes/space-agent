@@ -1,4 +1,4 @@
-const { listAppFiles } = require("../lib/app-files.cjs");
+import { listAppFiles } from "../lib/app-files.js";
 
 function readRequestedPaths(context) {
   const payload =
@@ -16,14 +16,12 @@ function readRequestedPaths(context) {
     .filter(Boolean);
 }
 
-module.exports = {
-  post(context) {
-    const paths = readRequestedPaths(context);
-    const matches = listAppFiles(context.appDir, paths);
+export function post(context) {
+  const paths = readRequestedPaths(context);
+  const matches = listAppFiles(context.appDir, paths);
 
-    return {
-      ok: true,
-      matches
-    };
-  }
-};
+  return {
+    ok: true,
+    matches
+  };
+}

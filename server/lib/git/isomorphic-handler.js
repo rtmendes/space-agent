@@ -1,5 +1,3 @@
-import { createRequire } from "node:module";
-
 import {
   COMMIT_HASH_PATTERN,
   buildHttpAuthOptions,
@@ -11,13 +9,14 @@ import {
   shortenOid
 } from "./shared.js";
 
-const require = createRequire(import.meta.url);
-
 async function resolveIsomorphicModules() {
   try {
+    const gitModule = await import("isomorphic-git");
+    const httpModule = await import("isomorphic-git/http/node");
+
     return {
-      git: require("isomorphic-git"),
-      http: require("isomorphic-git/http/node")
+      git: gitModule.default || gitModule,
+      http: httpModule.default || httpModule
     };
   } catch (error) {
     throw new Error(error.message);

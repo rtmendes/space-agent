@@ -2,48 +2,61 @@
 
 ## Purpose
 
-`app/` is the browser-runtime root.
+`app/` is the primary Agent One runtime.
 
-It is organized into a three-layer modular runtime:
+Keep agent orchestration, prompt construction, tool flow, state management, user interaction, and optimistic UX in the browser whenever possible. Server-backed work in this tree should be browser clients for explicit server APIs, not server-side orchestration leaking into the frontend.
 
-- `L0/`: immutable firmware
-- `L1/`: editable group customware
-- `L2/`: editable user customware
+## Structure
 
-## Layer Rules
+The browser runtime is organized into three layers:
 
-- `L0` is firmware and should only change through updates
-- `L1` contains per-group customware; subfolders are group ids and `_all` plus `_admin` must always exist
-- `L2` contains per-user customware; subfolders are usernames
-- users should only write inside their own `L2/<username>/`
-- users should only read through the group and user inheritance chain that applies to them
-- groups may include users and groups, and may declare managers that can write to that group's `L1` area
-- modules are the only supported extension unit
-- each group or user owns a `mod/` folder, with module contents under `mod/<author>/<repo>/...`
-- server-owned concerns such as raw proxy transport and SQLite access do not belong here unless they are browser clients for those services
-- keep non-HTML browser assets fetchable through `/mod/...`, not through ad hoc top-level static paths
-- keep `L0/` root narrow: root HTML entry shells plus `mod/`
-- pack the shared browser runtime under `L0/mod/_all/mod/_core/framework/`
-- pack the current chat UI under `L0/mod/_all/mod/_core/chat/`
+- `L0/`: immutable firmware changed through updates
+- `L1/`: runtime-editable group customware
+- `L2/`: runtime-editable user customware
 
-## Frontend Patterns
+Current browser entry surfaces:
 
-- Prefer framework-backed pages over page-local imperative bootstraps.
-- A page shell should usually load framework assets from `/mod/_core/framework/`, then mount a root `x-component` from `/mod/...` instead of owning complex inline markup and controller logic itself.
-- Put page behavior into a dedicated Alpine store created with `createStore(...)`.
-- Store-dependent component content should be gated with `x-data` plus `template x-if="$store.<name>"` before rendering.
-- Use Alpine handlers such as `@click`, `@submit.prevent`, `@input`, `@keydown`, `x-model`, `x-text`, `x-ref`, `x-init`, and `x-destroy` instead of wiring most UI behavior through `querySelector` and manual event listener registration.
-- Use `x-component` includes for reusable or page-root UI fragments instead of duplicating markup in page shells.
-- When a component needs DOM references, pass them into the store from Alpine via `x-ref` during mount rather than having the store scan the document globally.
-- Keep stores responsible for controller state, persistence, async flows, and orchestration. Keep render-only DOM assembly helpers in separate modules when the UI is too complex for direct Alpine templating alone.
-- Prefer one public browser runtime namespace. Expose browser-facing APIs through `A1`, and nest chat-specific execution data under `A1.currentChat` instead of adding parallel aliases.
-- Keep `runtime.js` generic. Feature-specific runtime state such as chat attachments or message mirrors belongs in the owning feature store, not in the shared runtime bootstrap.
+- `app/L0/index.html`: main chat shell
+- `app/L0/admin.html`: admin shell
+
+Current shared module locations:
+
+- `app/L0/_all/mod/_core/framework/`: shared frontend framework bootstrap, runtime helpers, API client, modal/component support
+- `app/L0/_all/mod/_core/chat/`: current chat runtime, UI, storage, execution context, and LLM client helpers
+- `app/L0/_all/mod/_core/admin/`: current admin UI modules
+- `app/L0/test/`: firmware-side test and example customware fixtures
+
+## Layer Rules And Module Model
+
+- `L0` is firmware and should stay update-driven
+- `L1` contains per-group customware; `_all` and `_admin` are special groups
+- `L2` contains per-user customware; users should only write inside their own `L2/<username>/`
+- `L1` and `L2` are transient runtime state and are gitignored; do not document repo-owned example content there as if it were durable framework structure
+- groups may include users and other groups, and may declare managers that can write to that group's `L1` area
+- group definitions live in `group.yaml` files under `app/L0/<group-id>/` and `app/L1/<group-id>/`
+- modules are the supported browser extension unit
+- each group or user owns a `mod/` folder, and module contents are namespaced as `mod/<author>/<repo>/...`
+- browser-facing code and assets should normally be delivered through `/mod/...`
+- the current inheritance model is `L0 -> L1 -> L2` across the effective group chain for the current user
+- the current request identity still comes from a temporary trusted `username` cookie; do not build new frontend assumptions that depend on that shortcut lasting forever
+
+## Frontend Implementation Guide
+
+- keep root HTML shells thin; they should load shared framework assets and mount root `x-component` entries instead of owning large inline controllers
+- use `/mod/_core/framework/initFw.js` as the shared frontend bootstrap for framework-backed pages
+- prefer Alpine stores created with `createStore(...)` for feature controllers
+- gate store-dependent component content with `x-data` and `template x-if="$store.<name>"`
+- use Alpine handlers such as `@click`, `@submit.prevent`, `@input`, `@keydown`, `x-model`, `x-text`, `x-ref`, `x-init`, and `x-destroy` instead of wiring most behavior through manual `querySelector` listeners
+- pass DOM references into stores from Alpine via `x-ref`; do not make stores scan the whole document when direct refs will do
+- keep stores responsible for state, persistence, async flows, and orchestration; move large render-only helpers into separate modules when templating alone becomes too dense
+- expose shared browser-facing APIs through the `A1` runtime namespace
+- keep feature-specific runtime state in the owning feature namespace or store, such as `A1.currentChat`, not in generic runtime globals
+- keep new runtime features in module folders, not in ad hoc top-level static paths
+- legacy extension helpers still exist under the framework area; do not expand them casually if the module-based `/mod/...` model already covers the use case
 
 ## Current State
 
-Only the first simplified slice is active today.
-
-- `/mod/...` resolves only from `L0/mod/_all/`
-- inheritance across `L0`, `L1`, and `L2` is not implemented yet
-- the main `L0/index.html` entry now boots `/mod/_core/framework/` and mounts `/mod/_core/chat/chat-page.html`
-- non-`/mod` requests should stay limited to root HTML shells under `L0/`
+- `app/L0/index.html` loads framework styles and `/mod/_core/framework/initFw.js`, then mounts `/mod/_core/chat/chat-page.html`
+- `app/L0/admin.html` follows the same pattern and mounts `/mod/_core/admin/admin-shell.html`
+- browser-side file changes still require a manual browser refresh; live reload is not wired into the app runtime yet
+- when app structure, layer behavior, module layout, entry shells, or frontend conventions change, update this file in the same session

@@ -1,87 +1,73 @@
 # AGENTS
 
-## Goal
+## Introduction
 
-Build an AI agent that runs almost entirely in the web browser.
+Agent One is a browser-first AI agent runtime.
 
-The browser app is the primary runtime. The Node.js server exists only as thin infrastructure for:
+The browser app is the primary runtime. The Node.js side exists as thin infrastructure around it for:
 
-- outbound fetch proxying to avoid CORS limitations
-- ownership of the SQLite persistence file and related integrity-safe operations
+- outbound fetch proxying when the browser would otherwise hit CORS limits
+- server-owned APIs and other narrow infrastructure contracts
+- ownership of the SQLite persistence file and integrity-safe persistence operations
+- local development and optional desktop hosting
 
-## Current Top-Level Structure
+Documentation quality is one of the most important parts of this project. Without high-quality agent docs, agents go rogue and architecture drifts. Treat these files as part of the runtime, not as optional notes.
 
-- `A1.js`: root CLI router
-- `commands/`: CLI command modules such as `serve`, `help`, `version`, `update`
-- `server/`: thin local server plus shared server-side infrastructure libraries used by browser-only, packaged native, and CLI-side infra flows
-- `app/`: layered browser runtime layout
-- `packaging/`: native app hosts, packaging scripts, shared packaging resources, and per-platform packaging metadata
+This repository must keep exactly three agent documentation files:
 
-## Layered Browser Model
+- `/AGENTS.md`
+- `/app/AGENTS.md`
+- `/server/AGENTS.md`
 
-The browser runtime is moving to a modular three-layer model:
+Do not add more `AGENTS.md` files under `commands/`, `packaging/`, or other subdirectories unless the project explicitly changes that rule.
 
-- `app/L0/`: immutable firmware
-  Only changed via updates. Firmware group buckets live under `app/L0/mod/<group-id>/`.
-- `app/L1/`: group customware
-  Editable at runtime. Group folders live under `app/L1/<group-id>/`.
-- `app/L2/`: user customware
-  Editable at runtime. User folders live under `app/L2/<username>/`.
+## Programming Guide
 
-Special groups `_all` and `_admin` are always present.
-Groups may include users and other groups.
-Groups may also declare managers, and managers may be either users or groups.
+These rules apply across the codebase:
 
-Users should only read through their effective group chain in `L0` and `L1`.
-Users should only write inside their own `L2/<username>/` area.
-Group managers should only gain write access to that managed group's `L1` area.
+- keep implementations lean; prefer refactoring and simplification over adding bloat
+- do not repeat code unnecessarily; when logic repeats, extract a shared implementation
+- design new functionality to be reusable when that reuse is realistic
+- do not hardwire features directly to each other when a small explicit contract or abstraction will do
+- prefer composition, registries, and stable module boundaries over ad hoc cross-dependencies
+- code must stay clean, readable, and reusable
+- avoid boilerplate and ceremony unless they solve a real maintenance, safety, or clarity problem
+- use deterministic discovery patterns for pluggable systems
+- keep each handler type in one predictable folder and load implementations by explicit name, config, or convention
+- apply the same deterministic loading rule to API handlers, watched-file handlers, workers, and other extension points that serve the same role
+- do not create one-off loader paths for a single feature when that feature belongs in an existing handler or extension system
+- when multiple objects should share the same interface, prefer JavaScript classes with a shared superclass and explicit overridden methods
+- do not model shared interfaces as plain objects that are inspected at runtime to see whether a function exists
+- use ES module syntax throughout the codebase; prefer `import` and `export` and avoid CommonJS forms such as `require` and `module.exports`
+- some legacy CommonJS still exists in the repository; treat it as migration debt, not as a pattern to copy
+- keep as much agent logic in the browser as possible
+- treat the server as infrastructure, not as the main application runtime
+- prefer explicit, small contracts between browser and server
+- prefer maintainable filesystem structure over clever routing shortcuts
 
-Every group or user may contain a `mod/` folder.
-Modules are the only supported extension mechanism, and they are namespaced as `mod/<author>/<repo>/...`.
+## Structure And Concepts Overview
 
-Frontend code should fetch browser resources through `/mod/<author>/<repo>/...`.
-The intended inheritance chain is `L0 -> L1 -> L2`, including group inclusion.
-The current codebase only implements the first simplified slice of that plan: `/mod/...` resolves from `app/L0/mod/_all/`.
+Top-level structure:
 
-Default rule: browser first, server last.
+- `A1.js`: root CLI router that discovers command modules dynamically
+- `commands/`: CLI command modules such as `serve`, `help`, `version`, and `update`
+- `app/`: browser runtime, layered customware model, shared frontend modules, and browser test surfaces
+- `server/`: thin local infrastructure runtime, API host, fetch proxy, watched-file indexes, and Git support code for update flows
+- `packaging/`: optional Electron host and packaging scripts; keep native hosts thin
 
-## Server Responsibilities
+Project concepts:
 
-Keep the server narrow. It should handle:
+- browser first, server last
+- modules are the browser delivery unit for code, markup, styles, and assets
+- browser modules are namespaced as `mod/<author>/<repo>/...`
+- the layered browser model is `app/L0` firmware, `app/L1` group customware, and `app/L2` user customware
+- `app/L1` and `app/L2` are transient runtime state and are gitignored; do not treat them as durable repo-owned sample content
+- the server resolves `/mod/...` requests through that layered inheritance model
+- the server-side backend under `server/` is expected to use ES module syntax throughout
+- detailed browser-runtime rules live in `/app/AGENTS.md`
+- detailed server-runtime rules live in `/server/AGENTS.md`
 
-### 1. Fetch Proxy
-
-- accept browser requests that would otherwise fail because of CORS
-- forward requests upstream with minimal transformation
-- return upstream status, relevant headers, and body
-- remain infrastructure, not application orchestration
-
-### 2. Persistence Layer
-
-- own direct access to the SQLite database file
-- expose small explicit APIs for reads, writes, migrations, and integrity-safe operations
-- prevent direct browser access to the database file
-
-### 3. API Module Host
-
-- load simple endpoint modules from `server/api/`
-- allow modules to return plain JS values for easy JSON APIs
-- also allow modules to return explicit HTTP-style response objects for advanced responses such as streams
-
-## Browser Responsibilities
-
-The browser should own:
-
-- agent orchestration and runtime logic
-- prompt construction
-- tool flow
-- state management
-- user interaction and optimistic UX
-- synchronization with server persistence APIs
-
-## CLI
-
-The supported CLI surface is:
+Supported CLI surface:
 
 - `node A1.js serve`
 - `node A1.js update`
@@ -90,24 +76,36 @@ The supported CLI surface is:
 - `node A1.js version`
 - `node A1.js --version`
 
-Command modules live in `commands/` and export:
+Development and packaging surface:
 
-- `execute(context)`
-- `help`
+- Node.js 20 or newer
+- `npm install` for the standard source checkout
+- `npm install --omit=optional` when native optional dependencies are not expected to work
+- `npm run dev` to run the local dev supervisor
+- `node A1.js serve` to run the server directly
+- `npm run install:packaging` to install packaging-only dependencies
+- `npm run desktop:dev`, `npm run desktop:pack`, and `npm run desktop:dist` for the Electron host and packaging flow
 
-## Current Non-Goals
+## Documentation Maintenance
 
-- heavy server-side business logic
-- server-side agent execution by default
-- distributed infrastructure
-- microservices
-- broad generic API surfaces without a clear browser need
+All agent-facing documentation lives in the three `AGENTS.md` files. The root `README.md` is intentionally removed so the project has one documentation system for agents instead of split, drifting sources.
 
-## Guidance
+Documentation ownership:
 
-- keep as much agent logic in the browser as possible
-- treat the server as infrastructure
-- treat modules as the browser-facing delivery unit for code, markup, styles, and assets
-- prefer explicit, small contracts between browser and server
-- prefer maintainable filesystem structure over clever routing shortcuts
-- when changing architecture, update the relevant `AGENTS.md` files alongside the code
+- `/AGENTS.md` owns repo-wide rules, project identity, top-level structure, CLI surface, packaging surface, and documentation policy
+- `/app/AGENTS.md` owns browser-runtime architecture, layer rules, frontend patterns, and app-specific current state
+- `/server/AGENTS.md` owns server responsibilities, API contracts, watched-file/customware infrastructure, and server-specific current state
+
+Documentation rules:
+
+- keep app-specific details in `/app/AGENTS.md`, not in the root file
+- keep server-specific details in `/server/AGENTS.md`, not in the root file
+- do not duplicate detailed app or server information in `/AGENTS.md`; keep root high level and point to the owning file
+- do not create extra AGENTS files for `commands/`, `packaging/`, or other subtrees; fold that information into the root file unless the policy changes
+- do not create parallel `README.md` or `readme.md` files for architecture or agent guidance; keep durable project documentation in the three AGENTS files
+- after every edit session, review whether architecture, folder layout, commands, API contracts, loader behavior, watcher behavior, extension points, or conventions changed
+- if they changed, update the relevant `AGENTS.md` files in the same session before finishing
+- if a change affects both app and server, update both local docs and update the root file if the top-level contract changed
+- remove stale or contradictory documentation immediately; do not leave drift for later
+- when code reveals undocumented architecture, document it
+- keep these files explicit, current, and high signal at all times

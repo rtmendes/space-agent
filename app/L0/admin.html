@@ -6,26 +6,10 @@
     <title>Agent One Admin</title>
     <link rel="stylesheet" href="/mod/_core/framework/colors.css" />
     <link rel="stylesheet" href="/mod/_core/framework/index.css" />
-    <style>
-      body {
-        margin: 0;
-        min-height: 100vh;
-        background: var(--color-background, #f4f6f8);
-        color: var(--color-text, #18212c);
-        font-family: "SF Pro Text", "Segoe UI", "Helvetica Neue", Arial, sans-serif;
-      }
-
-      main {
-        width: min(100%, 48rem);
-        margin: 0 auto;
-        padding: 4rem 1.5rem;
-      }
-    </style>
+    <link rel="stylesheet" href="/mod/_core/framework/modals.css" />
+    <script type="module" src="/mod/_core/framework/initFw.js"></script>
   </head>
   <body class="light-mode">
-    <main>
-      <h1>Agent One Admin</h1>
-      <p>The admin surface has not been moved into the new `/mod/...` module layout yet.</p>
-    </main>
+    <x-component path="/mod/_core/admin/admin-shell.html"></x-component>
   </body>
 </html>

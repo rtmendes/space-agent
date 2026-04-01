@@ -1,9 +1,10 @@
-const fs = require("node:fs");
-const path = require("node:path");
-const { Readable } = require("node:stream");
+import fs from "node:fs";
+import path from "node:path";
+import { Readable } from "node:stream";
 
 const MIME_TYPES = {
   ".css": "text/css; charset=utf-8",
+  ".htm": "text/html; charset=utf-8",
   ".html": "text/html; charset=utf-8",
   ".js": "text/javascript; charset=utf-8",
   ".json": "application/json; charset=utf-8",
@@ -11,7 +12,8 @@ const MIME_TYPES = {
   ".mjs": "text/javascript; charset=utf-8",
   ".svg": "image/svg+xml",
   ".ttf": "font/ttf",
-  ".txt": "text/plain; charset=utf-8"
+  ".txt": "text/plain; charset=utf-8",
+  ".xhtml": "application/xhtml+xml; charset=utf-8"
 };
 
 function sendJson(res, statusCode, payload) {
@@ -185,8 +187,4 @@ async function sendApiResult(res, result) {
   sendJson(res, 200, result);
 }
 
-module.exports = {
-  sendApiResult,
-  sendFile,
-  sendJson
-};
+export { sendApiResult, sendFile, sendJson };

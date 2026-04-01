@@ -1,10 +1,12 @@
 #!/usr/bin/env node
 
-const fs = require("node:fs/promises");
-const path = require("node:path");
-const { spawn } = require("node:child_process");
+import fs from "node:fs/promises";
+import path from "node:path";
+import { spawn } from "node:child_process";
+import { fileURLToPath } from "node:url";
 
-const PROJECT_ROOT = path.resolve(__dirname, "..");
+const CURRENT_DIR = path.dirname(fileURLToPath(import.meta.url));
+const PROJECT_ROOT = path.resolve(CURRENT_DIR, "..");
 const WATCH_TARGETS = ["A1.js", "commands", "server"].map((entry) => path.join(PROJECT_ROOT, entry));
 const SCAN_INTERVAL_MS = 750;
 const RESTART_DEBOUNCE_MS = 1_000;

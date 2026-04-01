@@ -1,16 +1,15 @@
-module.exports = {
-  get(context) {
-    const browserAppUrl = context.requestUrl ? context.requestUrl.origin : context.browserUrl;
+export function get(context) {
+  const browserAppUrl = context.requestUrl ? context.requestUrl.origin : context.browserUrl;
 
-    return {
-      ok: true,
-      name: "agent-one-server",
-      browserAppUrl,
-      responsibilities: [
-        "serve the browser app during development",
-        "proxy outbound fetch calls",
-        "manage sqlite persistence"
-      ]
-    };
-  }
-};
+  return {
+    ok: true,
+    name: "agent-one-server",
+    browserAppUrl,
+    user: context.user || null,
+    responsibilities: [
+      "serve the browser app during development",
+      "proxy outbound fetch calls",
+      "manage sqlite persistence"
+    ]
+  };
+}

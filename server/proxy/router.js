@@ -1,10 +1,13 @@
-const path = require("node:path");
-const { URL } = require("node:url");
-const { toProjectPath } = require("../lib/file-watch/store.cjs");
-const { sendApiResult, sendFile, sendJson } = require("./handlers");
-const { applyApiCorsHeaders, handleApiPreflight } = require("./cors");
-const { readParsedRequestBody } = require("./request-body");
-const { proxyExternalRequest } = require("./service");
+import path from "node:path";
+import { URL } from "node:url";
+
+import { resolveInheritedModuleProjectPath } from "../lib/customware/module-inheritance.js";
+import { toProjectPath } from "../lib/file-watch/watchdog.js";
+import { createRequestContext, runWithRequestContext } from "../lib/request-context.js";
+import { sendApiResult, sendFile, sendJson } from "./handlers.js";
+import { applyApiCorsHeaders, handleApiPreflight } from "./cors.js";
+import { readParsedRequestBody } from "./request-body.js";
+import { proxyExternalRequest } from "./service.js";
 
 function resolvePathWithinRoot(rootDir, requestPath) {
   const filePath = path.resolve(rootDir, `.${requestPath}`);
@@ -22,11 +25,29 @@ function resolvePathWithinRoot(rootDir, requestPath) {
   return filePath;
 }
 
-function resolveStaticRequestFilePath(appDir, requestPath) {
+function resolveStaticRequestFilePath(appDir, requestPath, options = {}) {
+  const { projectRoot, username, watchdog } = options;
   const normalizedPath = path.posix.normalize(requestPath === "/" ? "/index.html" : requestPath);
 
   if (normalizedPath.startsWith("/mod/")) {
-    return resolvePathWithinRoot(path.join(appDir, "mod", "_all"), normalizedPath);
+    const resolvedModulePath = resolveInheritedModuleProjectPath({
+      projectRoot,
+      requestPath: normalizedPath,
+      username,
+      watchdog
+    });
+
+    if (!resolvedModulePath) {
+      return {
+        filePath: "",
+        knownMissing: true
+      };
+    }
+
+    return {
+      filePath: resolvedModulePath.absolutePath,
+      knownMissing: false
+    };
   }
 
   const baseName = path.posix.basename(normalizedPath);
@@ -37,7 +58,10 @@ function resolveStaticRequestFilePath(appDir, requestPath) {
     return null;
   }
 
-  return resolvePathWithinRoot(appDir, normalizedPath);
+  return {
+    filePath: resolvePathWithinRoot(appDir, normalizedPath),
+    knownMissing: false
+  };
 }
 
 function createParamsObject(searchParams) {
@@ -122,6 +146,7 @@ async function handleApiModuleRequest(req, res, requestUrl, apiModule, contextOp
     query: params,
     rawBody: parsedRequest.rawBody,
     req,
+    requestContext: contextOptions.requestContext,
     requestUrl,
     res
   });
@@ -130,53 +155,64 @@ async function handleApiModuleRequest(req, res, requestUrl, apiModule, contextOp
 }
 
 function createRequestHandler(options) {
-  const { apiDir, apiRegistry, appDir, assetDir, fileIndex, host, port, projectRoot } = options;
+  const { apiDir, apiRegistry, appDir, assetDir, host, port, projectRoot, watchdog } = options;
 
   return async function requestHandler(req, res) {
     const requestUrl = new URL(req.url, `http://${req.headers.host || `${host}:${port}`}`);
+    const requestContext = createRequestContext({
+      req,
+      requestUrl
+    });
 
-    if (requestUrl.pathname.startsWith("/api/") && handleApiPreflight(req, res)) {
-      return;
-    }
+    return runWithRequestContext(requestContext, async () => {
+      if (requestUrl.pathname.startsWith("/api/") && handleApiPreflight(req, res)) {
+        return;
+      }
 
-    if (requestUrl.pathname === "/api/proxy") {
-      await proxyExternalRequest(req, res, requestUrl, applyApiCorsHeaders);
-      return;
-    }
+      if (requestUrl.pathname === "/api/proxy") {
+        await proxyExternalRequest(req, res, requestUrl, applyApiCorsHeaders);
+        return;
+      }
 
-    const apiModule = resolveApiModule(apiRegistry, requestUrl.pathname);
-    if (apiModule) {
-      await handleApiModuleRequest(req, res, requestUrl, apiModule, {
-        apiDir,
-        appDir,
-        assetDir,
-        fileIndex,
-        host,
-        port
+      const apiModule = resolveApiModule(apiRegistry, requestUrl.pathname);
+      if (apiModule) {
+        await handleApiModuleRequest(req, res, requestUrl, apiModule, {
+          apiDir,
+          appDir,
+          assetDir,
+          watchdog,
+          host,
+          port,
+          requestContext,
+          user: requestContext.user
+        });
+        return;
+      }
+
+      const staticResult = resolveStaticRequestFilePath(appDir, requestUrl.pathname, {
+        projectRoot,
+        username: requestContext.user.username,
+        watchdog
       });
-      return;
-    }
 
-    const filePath = resolveStaticRequestFilePath(appDir, requestUrl.pathname);
+      if (!staticResult || !staticResult.filePath) {
+        sendJson(res, 404, {
+          error: "File not found"
+        });
+        return;
+      }
 
-    if (!filePath) {
-      sendJson(res, 404, {
-        error: "File not found"
+      const projectPath = projectRoot ? toProjectPath(projectRoot, staticResult.filePath) : "";
+      const knownMissing = Boolean(
+        staticResult.knownMissing ||
+          (watchdog && projectPath && watchdog.covers(projectPath) && !watchdog.hasPath(projectPath))
+      );
+
+      sendFile(res, staticResult.filePath, {
+        knownMissing
       });
-      return;
-    }
-
-    const projectPath = projectRoot ? toProjectPath(projectRoot, filePath) : "";
-    const knownMissing = Boolean(
-      fileIndex && projectPath && fileIndex.covers(projectPath) && !fileIndex.has(projectPath)
-    );
-
-    sendFile(res, filePath, {
-      knownMissing
     });
   };
 }
 
-module.exports = {
-  createRequestHandler
-};
+export { createRequestHandler };

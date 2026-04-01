@@ -1,5 +1,3 @@
-import { createRequire } from "node:module";
-
 import {
   COMMIT_HASH_PATTERN,
   createAvailableBackendResult,
@@ -8,8 +6,6 @@ import {
   normalizeBranchName,
   shortenOid
 } from "./shared.js";
-
-const require = createRequire(import.meta.url);
 
 function readNodeGitText(value) {
   if (value == null) {
@@ -135,7 +131,8 @@ async function resolveCommitObject(repo, NodeGit, revision) {
 export async function createNodeGitClient({ projectRoot }) {
   let NodeGit;
   try {
-    NodeGit = require("nodegit");
+    const nodeGitModule = await import("nodegit");
+    NodeGit = nodeGitModule.default || nodeGitModule;
   } catch (error) {
     return createUnavailableBackendResult("nodegit", "the optional nodegit package is not installed or not loadable");
   }

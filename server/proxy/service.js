@@ -1,5 +1,6 @@
-const { Readable } = require("node:stream");
-const { readRequestBody, requestCanHaveBody } = require("./request-body");
+import { Readable } from "node:stream";
+
+import { readRequestBody, requestCanHaveBody } from "./request-body.js";
 
 const UPSTREAM_REQUEST_HEADERS_TO_STRIP = new Set([
   "accept-encoding",
@@ -165,7 +166,7 @@ async function proxyExternalRequest(req, res, requestUrl, applyApiCorsHeaders) {
   await pipeUpstreamBodyToResponse(res, upstreamResponse);
 }
 
-module.exports = {
+export {
   PROXY_TARGET_HEADER,
   PROXY_RESPONSE_FINAL_HEADER,
   PROXY_RESPONSE_REDIRECTED_HEADER,

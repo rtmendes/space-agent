@@ -1,5 +1,6 @@
-const http = require("node:http");
-const {
+import http from "node:http";
+
+import {
   API_DIR,
   APP_DIR,
   ASSET_DIR,
@@ -7,11 +8,11 @@ const {
   DEFAULT_PORT,
   FILE_WATCH_CONFIG_PATH,
   PROJECT_ROOT
-} = require("./config");
-const { loadApiRegistry } = require("./lib/api/registry.cjs");
-const { createFileIndex } = require("./lib/file-watch/path-index.cjs");
-const { sendJson } = require("./proxy/handlers");
-const { createRequestHandler } = require("./proxy/router");
+} from "./config.js";
+import { loadApiRegistry } from "./lib/api/registry.js";
+import { createWatchdog } from "./lib/file-watch/watchdog.js";
+import { sendJson } from "./proxy/handlers.js";
+import { createRequestHandler } from "./proxy/router.js";
 
 function resolveBrowserHost(host) {
   if (host === "0.0.0.0" || host === "::" || host === "[::]") {
@@ -21,7 +22,7 @@ function resolveBrowserHost(host) {
   return host;
 }
 
-function createAgentServer(overrides = {}) {
+async function createAgentServer(overrides = {}) {
   const apiDir = overrides.apiDir || API_DIR;
   const appDir = overrides.appDir || APP_DIR;
   const host = overrides.host || DEFAULT_HOST;
@@ -29,19 +30,20 @@ function createAgentServer(overrides = {}) {
   const port = Number(overrides.port || DEFAULT_PORT);
   const assetDir = overrides.assetDir || ASSET_DIR;
   const projectRoot = overrides.projectRoot || PROJECT_ROOT;
-  const fileIndex =
-    overrides.fileIndex ||
-    createFileIndex({
+  const watchdog =
+    overrides.watchdog ||
+    createWatchdog({
       configPath: overrides.fileWatchConfigPath || FILE_WATCH_CONFIG_PATH,
       projectRoot
     });
-  const apiRegistry = loadApiRegistry(apiDir);
+
+  const apiRegistry = await loadApiRegistry(apiDir);
   const requestHandler = createRequestHandler({
     apiDir,
     apiRegistry,
     appDir,
     assetDir,
-    fileIndex,
+    watchdog,
     host,
     port,
     projectRoot
@@ -70,11 +72,11 @@ function createAgentServer(overrides = {}) {
     host,
     port,
     assetDir,
-    fileIndex,
+    watchdog,
     server,
     browserUrl: `http://${browserHost}:${port}`,
     async listen() {
-      await fileIndex.start();
+      await watchdog.start();
 
       return new Promise((resolve, reject) => {
         server.once("error", reject);
@@ -88,7 +90,7 @@ function createAgentServer(overrides = {}) {
             host,
             port,
             assetDir,
-            fileIndex,
+            watchdog,
             server,
             browserUrl: `http://${browserHost}:${port}`
           });
@@ -96,7 +98,7 @@ function createAgentServer(overrides = {}) {
       });
     },
     async close() {
-      fileIndex.stop();
+      watchdog.stop();
 
       await new Promise((resolve, reject) => {
         server.close((error) => {
@@ -112,6 +114,4 @@ function createAgentServer(overrides = {}) {
   };
 }
 
-module.exports = {
-  createAgentServer
-};
+export { createAgentServer };

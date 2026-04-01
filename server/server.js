@@ -1,7 +1,10 @@
-const { createAgentServer } = require("./app");
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+import { createAgentServer } from "./app.js";
 
 async function startServer(overrides = {}) {
-  const app = createAgentServer(overrides);
+  const app = await createAgentServer(overrides);
   await app.listen();
   return app;
 }
@@ -12,7 +15,9 @@ async function runServeCli(overrides = {}) {
   return app;
 }
 
-if (require.main === module) {
+const currentFilePath = fileURLToPath(import.meta.url);
+
+if (process.argv[1] && path.resolve(process.argv[1]) === currentFilePath) {
   runServeCli().catch((error) => {
     console.error("Failed to start agent-one server.");
     console.error(error);
@@ -20,7 +25,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = {
-  runServeCli,
-  startServer
-};
+export { runServeCli, startServer };

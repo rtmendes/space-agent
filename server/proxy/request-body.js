@@ -54,8 +54,4 @@ async function readParsedRequestBody(req) {
   };
 }
 
-module.exports = {
-  readParsedRequestBody,
-  readRequestBody,
-  requestCanHaveBody
-};
+export { readParsedRequestBody, readRequestBody, requestCanHaveBody };

@@ -1,7 +1,4 @@
-import { createRequire } from "node:module";
-
-const require = createRequire(import.meta.url);
-const { startServer } = require("../server/server");
+import { startServer } from "../server/server.js";
 
 function parseServeArgs(args) {
   const overrides = {};

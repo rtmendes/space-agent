@@ -22,8 +22,4 @@ function handleApiPreflight(req, res) {
   return true;
 }
 
-module.exports = {
-  API_CORS_HEADERS,
-  applyApiCorsHeaders,
-  handleApiPreflight
-};
+export { API_CORS_HEADERS, applyApiCorsHeaders, handleApiPreflight };

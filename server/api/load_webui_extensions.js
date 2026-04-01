@@ -1,4 +1,5 @@
-const { listAppFiles, normalizePathSegment } = require("../lib/app-files.cjs");
+import { normalizePathSegment } from "../lib/app-files.js";
+import { listResolvedExtensionRequestPaths } from "../lib/customware/extension-overrides.js";
 
 function readPayload(context) {
   if (!context.body || typeof context.body !== "object" || Buffer.isBuffer(context.body)) {
@@ -8,30 +9,46 @@ function readPayload(context) {
   return context.body;
 }
 
-module.exports = {
-  post(context) {
-    const payload = readPayload(context);
-    const extensionPoint = normalizePathSegment(payload.extension_point || "");
-    const filters = Array.isArray(payload.filters)
-      ? payload.filters.filter((value) => typeof value === "string" && value.trim())
-      : [];
-
-    if (!extensionPoint) {
-      return {
-        extensions: []
-      };
+function readRequestedPatterns(context) {
+  const payload = readPayload(context);
+  const normalizePattern = (value) => {
+    try {
+      return normalizePathSegment(value);
+    } catch {
+      return "";
     }
+  };
 
-    const requestedPaths = (filters.length > 0 ? filters : ["*"]).map(
-      (filter) => `extensions/${extensionPoint}/${filter}`
-    );
-    const matches = listAppFiles(context.appDir, requestedPaths);
-    const extensions = [...new Set(matches.flatMap((item) => item.files))].sort((left, right) =>
-      left.localeCompare(right)
-    );
-
-    return {
-      extensions
-    };
+  if (Array.isArray(payload.patterns)) {
+    return payload.patterns
+      .filter((value) => typeof value === "string")
+      .map((value) => normalizePattern(value))
+      .filter(Boolean);
   }
-};
+
+  const extensionPoint = normalizePathSegment(payload.extension_point || "");
+  const filters = Array.isArray(payload.filters)
+    ? payload.filters.filter((value) => typeof value === "string" && value.trim())
+    : [];
+
+  if (!extensionPoint) {
+    return [];
+  }
+
+  return (filters.length > 0 ? filters : ["*"]).map((filter) =>
+    normalizePattern(`${extensionPoint}/${filter}`)
+  ).filter(Boolean);
+}
+
+export function post(context) {
+  const patterns = readRequestedPatterns(context);
+  const extensions = listResolvedExtensionRequestPaths({
+    patterns,
+    username: context.user && context.user.username,
+    watchdog: context.watchdog
+  });
+
+  return {
+    extensions
+  };
+}
