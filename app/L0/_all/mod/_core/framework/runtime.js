@@ -9,7 +9,7 @@ function publishRuntime(targetWindow, runtime) {
   }
 
   try {
-    targetWindow.A1 = runtime;
+    targetWindow.space = runtime;
   } catch (error) {
     // Ignore inaccessible window targets.
   }
@@ -21,7 +21,7 @@ export function initializeRuntime(options = {}) {
 
   installFetchProxy({ proxyPath });
   const api = createApiClient({ basePath: apiBasePath });
-  const previousRuntime = globalThis.A1 && typeof globalThis.A1 === "object" ? globalThis.A1 : {};
+  const previousRuntime = globalThis.space && typeof globalThis.space === "object" ? globalThis.space : {};
 
   const runtime = {
     ...previousRuntime,

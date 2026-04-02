@@ -37,7 +37,7 @@ export function normalizeBackendName(rawValue) {
 
   if (!SUPPORTED_GIT_BACKENDS.has(normalizedValue)) {
     throw new Error(
-      `Unsupported A1_GIT_BACKEND value "${rawValue}". Expected one of: native, nodegit, isomorphic.`
+      `Unsupported SPACE_GIT_BACKEND value "${rawValue}". Expected one of: native, nodegit, isomorphic.`
     );
   }
 
@@ -133,13 +133,13 @@ export function normalizeRemoteUrl(remoteUrl) {
 
 export function buildHttpAuthOptions(remoteUrl, env = process.env) {
   const token =
-    env.AGENT_ONE_GIT_TOKEN ||
+    env.SPACE_GIT_TOKEN ||
     env.GITHUB_TOKEN ||
     env.GH_TOKEN ||
     null;
 
   if (token) {
-    const username = env.AGENT_ONE_GIT_USERNAME || env.GIT_USERNAME || "git";
+    const username = env.SPACE_GIT_USERNAME || env.GIT_USERNAME || "git";
 
     return {
       onAuth() {

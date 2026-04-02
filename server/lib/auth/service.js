@@ -1,11 +1,11 @@
 import { randomBytes } from "node:crypto";
 
 import { normalizeEntityId } from "../customware/layout.js";
-import { createEmptyUserIndex } from "./user-index.js";
+import { createEmptyUserIndex } from "./user_index.js";
 import { verifyLoginProof } from "./passwords.js";
-import { readUserLogins, writeUserLogins } from "./user-files.js";
+import { readUserLogins, writeUserLogins } from "./user_files.js";
 
-const SESSION_COOKIE_NAME = "agent_one_session";
+const SESSION_COOKIE_NAME = "space_session";
 const CHALLENGE_TTL_MS = 5 * 60 * 1000;
 const NONCE_PATTERN = /^[A-Za-z0-9_-]{16,200}$/u;
 
@@ -98,7 +98,7 @@ export function createAuthService(options = {}) {
       return createEmptyUserIndex();
     }
 
-    return watchdog.getIndex("user-index") || createEmptyUserIndex();
+    return watchdog.getIndex("user_index") || createEmptyUserIndex();
   }
 
   function resolveUserFromCookies(cookies = {}) {

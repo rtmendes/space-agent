@@ -1,6 +1,8 @@
 {
+  "javascript.preferences.importModuleSpecifierEnding": "js",
+  "typescript.preferences.importModuleSpecifierEnding": "js",
   "material-icon-theme.folders.associations": {
-    "fw": "server",
+    "fw": "server"
   },
   "material-icon-theme.files.associations": {
   }

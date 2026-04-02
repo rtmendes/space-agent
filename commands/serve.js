@@ -30,13 +30,13 @@ function parseServeArgs(args) {
 
 export const help = {
   name: "serve",
-  summary: "Start the local Agent One server.",
+  summary: "Start the local Space Agent server.",
   usage: [
-    "node A1.js serve",
-    "node A1.js serve --host 0.0.0.0 --port 3000"
+    "node space serve",
+    "node space serve --host 0.0.0.0 --port 3000"
   ],
   description:
-    "Starts the local Node server that serves the browser app, proxies fetch requests, and owns SQLite access.",
+    "Starts the local Node server that serves the browser app and proxies fetch requests.",
   options: [
     {
       flag: "--host <host>",
@@ -46,6 +46,10 @@ export const help = {
       flag: "--port <port>",
       description: "Bind port. Defaults to env PORT or 3000."
     }
+  ],
+  examples: [
+    "node space serve",
+    "node space serve --host 127.0.0.1 --port 3100"
   ]
 };
 
@@ -53,6 +57,6 @@ export async function execute(context) {
   const overrides = parseServeArgs(context.args);
   const server = await startServer(overrides);
 
-  console.log(`agent-one server listening at ${server.browserUrl}`);
+  console.log(`space server listening at ${server.browserUrl}`);
   return 0;
 }

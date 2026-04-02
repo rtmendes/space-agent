@@ -3,6 +3,7 @@ import path from "node:path";
 
 import { normalizeAppProjectPath, normalizeEntityId, parseAppProjectPath } from "./layout.js";
 import { createEmptyGroupIndex } from "./overrides.js";
+import { globToRegExp, normalizePathSegment } from "../utils/app_files.js";
 
 function createHttpError(message, statusCode) {
   const error = new Error(message);
@@ -33,7 +34,7 @@ function getGroupIndex(watchdog) {
     return createEmptyGroupIndex();
   }
 
-  return watchdog.getIndex("group-index") || createEmptyGroupIndex();
+  return watchdog.getIndex("group_index") || createEmptyGroupIndex();
 }
 
 function getPathIndex(watchdog) {
@@ -41,11 +42,122 @@ function getPathIndex(watchdog) {
     return Object.create(null);
   }
 
-  return watchdog.getIndex("path-index") || Object.create(null);
+  return watchdog.getIndex("path_index") || Object.create(null);
+}
+
+function getSortedProjectPaths(watchdog) {
+  if (watchdog && typeof watchdog.getPaths === "function") {
+    return watchdog.getPaths();
+  }
+
+  return Object.keys(getPathIndex(watchdog)).sort((left, right) => left.localeCompare(right));
 }
 
 function hasPath(pathIndex, projectPath) {
   return Boolean(pathIndex && projectPath && pathIndex[projectPath]);
+}
+
+function normalizeFilePathPattern(value) {
+  const rawValue = String(value ?? "").trim();
+
+  if (!rawValue) {
+    throw createHttpError("File pattern must not be empty.", 400);
+  }
+
+  try {
+    const normalizedPattern = normalizePathSegment(rawValue);
+
+    if (!normalizedPattern) {
+      throw new Error("Empty file pattern.");
+    }
+
+    return normalizedPattern;
+  } catch {
+    throw createHttpError(`Invalid file pattern: ${rawValue}`, 400);
+  }
+}
+
+function compileFilePathPatterns(patterns) {
+  const compiledPatterns = [];
+  const seenPatterns = new Set();
+
+  for (const value of Array.isArray(patterns) ? patterns : []) {
+    const sourcePattern = String(value ?? "").trim();
+    const normalizedPattern = normalizeFilePathPattern(sourcePattern);
+
+    if (seenPatterns.has(sourcePattern)) {
+      continue;
+    }
+
+    seenPatterns.add(sourcePattern);
+    compiledPatterns.push({
+      matcher: globToRegExp(normalizedPattern),
+      sourcePattern
+    });
+  }
+
+  return compiledPatterns;
+}
+
+function listReadableGroupIds(username, groupIndex) {
+  const normalizedUsername = normalizeEntityId(username);
+  const orderedGroups =
+    groupIndex && typeof groupIndex.getOrderedGroupsForUser === "function"
+      ? groupIndex.getOrderedGroupsForUser(normalizedUsername)
+      : [];
+  const groupIds = [];
+
+  if (
+    groupIndex &&
+    typeof groupIndex.isUserInGroup === "function" &&
+    groupIndex.isUserInGroup(normalizedUsername, "_all")
+  ) {
+    groupIds.push("_all");
+  }
+
+  for (const groupId of orderedGroups) {
+    if (groupId && groupId !== "_all") {
+      groupIds.push(groupId);
+    }
+  }
+
+  return groupIds;
+}
+
+function createReadableOwnerScopes(options = {}) {
+  const normalizedUsername = normalizeEntityId(options.username);
+  const groupIds = listReadableGroupIds(normalizedUsername, options.groupIndex || createEmptyGroupIndex());
+  const ownerScopes = [];
+  let rank = 0;
+
+  for (const groupId of groupIds) {
+    ownerScopes.push({
+      rank,
+      rootPath: `/app/L0/${groupId}/`
+    });
+    rank += 1;
+  }
+
+  for (const groupId of groupIds) {
+    ownerScopes.push({
+      rank,
+      rootPath: `/app/L1/${groupId}/`
+    });
+    rank += 1;
+  }
+
+  if (normalizedUsername) {
+    ownerScopes.push({
+      rank,
+      rootPath: `/app/L2/${normalizedUsername}/`
+    });
+  }
+
+  return ownerScopes;
+}
+
+function findOwnerScope(projectPath, ownerScopes) {
+  return ownerScopes.find((ownerScope) => projectPath.startsWith(ownerScope.rootPath)) || null;
 }
 
 function createAppAccessController(options = {}) {
@@ -360,10 +472,74 @@ function listAppPaths(options = {}) {
   };
 }
 
+function listAppPathsByPatterns(options = {}) {
+  const compiledPatterns = compileFilePathPatterns(options.patterns);
+  const output = Object.create(null);
+
+  for (const { sourcePattern } of compiledPatterns) {
+    output[sourcePattern] = [];
+  }
+
+  if (compiledPatterns.length === 0) {
+    return output;
+  }
+
+  const ownerScopes = createReadableOwnerScopes({
+    groupIndex: getGroupIndex(options.watchdog),
+    username: options.username
+  });
+
+  if (ownerScopes.length === 0) {
+    return output;
+  }
+
+  const pathBuckets = new Map();
+
+  for (const projectPath of getSortedProjectPaths(options.watchdog)) {
+    const ownerScope = findOwnerScope(projectPath, ownerScopes);
+
+    if (!ownerScope) {
+      continue;
+    }
+
+    const relativePath = projectPath.slice(ownerScope.rootPath.length);
+
+    if (!relativePath) {
+      continue;
+    }
+
+    if (!pathBuckets.has(ownerScope.rank)) {
+      pathBuckets.set(ownerScope.rank, []);
+    }
+
+    pathBuckets.get(ownerScope.rank).push({
+      projectPath,
+      relativePath
+    });
+  }
+
+  for (const ownerScope of ownerScopes) {
+    const pathEntries = pathBuckets.get(ownerScope.rank) || [];
+
+    for (const pathEntry of pathEntries) {
+      const appRelativePath = toAppRelativePath(pathEntry.projectPath);
+
+      for (const compiledPattern of compiledPatterns) {
+        if (compiledPattern.matcher.test(pathEntry.relativePath)) {
+          output[compiledPattern.sourcePattern].push(appRelativePath);
+        }
+      }
+    }
+  }
+
+  return output;
+}
+
 export {
   createAppAccessController,
   createHttpError,
   listAppPaths,
+  listAppPathsByPatterns,
   readAppFile,
   toAppRelativePath,
   writeAppFile

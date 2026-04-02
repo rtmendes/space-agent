@@ -1,5 +1,5 @@
 const { contextBridge } = require("electron");
 
-contextBridge.exposeInMainWorld("agentOneDesktop", {
+contextBridge.exposeInMainWorld("spaceDesktop", {
   platform: process.platform
 });

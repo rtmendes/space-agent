@@ -1,9 +1,9 @@
 const STORAGE_KEYS = {
-  draft: "agent-one.chat.draft",
-  history: "agent-one.chat.history",
-  settings: "agent-one.chat.settings",
-  systemPrompt: "agent-one.chat.system-prompt",
-  systemPromptMode: "agent-one.chat.system-prompt-mode"
+  draft: "space.chat.draft",
+  history: "space.chat.history",
+  settings: "space.chat.settings",
+  systemPrompt: "space.chat.system-prompt",
+  systemPromptMode: "space.chat.system-prompt-mode"
 };
 
 export const DEFAULT_CHAT_SETTINGS = {

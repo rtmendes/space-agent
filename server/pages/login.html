@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Agent One Login</title>
+    <title>Space Agent Login</title>
     <style>
       :root {
         color-scheme: light;
@@ -149,7 +149,7 @@
   </head>
   <body>
     <main class="login-card">
-      <h1>Agent One</h1>
+      <h1>Space Agent</h1>
       <p>Sign in to load your user-specific customware and modules.</p>
       <form id="login-form">
         <label>
@@ -189,7 +189,7 @@
       <div id="status" class="status"></div>
     </main>
     <script>
-      const LOGIN_PREFIX = "agent-one-login-v1";
+      const LOGIN_PREFIX = "space-login-v1";
       const CLIENT_KEY_LABEL = "Client Key";
       const SERVER_KEY_LABEL = "Server Key";
       const textEncoder = new TextEncoder();
@@ -386,7 +386,7 @@
         syncButtonState(true);
 
         try {
-          const guestAccount = await postJson("/api/create_guest", {});
+          const guestAccount = await postJson("/api/guest_create", {});
           setGuestCredentials(guestAccount);
           usernameInput.value = guestAccount.username;
           passwordInput.value = guestAccount.password;

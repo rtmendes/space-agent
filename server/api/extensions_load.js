@@ -1,5 +1,5 @@
-import { normalizePathSegment } from "../lib/utils/app-files.js";
-import { listResolvedExtensionRequestPaths } from "../lib/customware/extension-overrides.js";
+import { normalizePathSegment } from "../lib/utils/app_files.js";
+import { listResolvedExtensionRequestPaths } from "../lib/customware/extension_overrides.js";
 
 function readPayload(context) {
   if (!context.body || typeof context.body !== "object" || Buffer.isBuffer(context.body)) {

@@ -2,12 +2,9 @@ import fs from "node:fs";
 import path from "node:path";
 
 import { normalizeEntityId } from "./layout.js";
-import { parseSimpleYaml, serializeSimpleYaml } from "../utils/yaml-lite.js";
+import { parseSimpleYaml, serializeSimpleYaml } from "../utils/yaml_lite.js";
 
-function normalizeLayer(value) {
-  const layer = String(value || "L1").trim().toUpperCase();
-  return layer === "L0" || layer === "L1" ? layer : "";
-}
+const GROUP_WRITE_LAYER = "L1";
 
 function normalizeStringList(values) {
   return [...new Set((Array.isArray(values) ? values : values ? [values] : [])
@@ -25,23 +22,18 @@ function getNormalizedGroupConfig(config = {}) {
   };
 }
 
-function buildGroupConfigAbsolutePath(projectRoot, layer, groupId) {
-  const normalizedLayer = normalizeLayer(layer);
+function buildGroupConfigAbsolutePath(projectRoot, groupId) {
   const normalizedGroupId = normalizeEntityId(groupId);
-
-  if (!normalizedLayer) {
-    throw new Error(`Invalid group layer: ${String(layer || "")}`);
-  }
 
   if (!normalizedGroupId) {
     throw new Error(`Invalid group id: ${String(groupId || "")}`);
   }
 
-  return path.join(projectRoot, "app", normalizedLayer, normalizedGroupId, "group.yaml");
+  return path.join(projectRoot, "app", GROUP_WRITE_LAYER, normalizedGroupId, "group.yaml");
 }
 
-function readGroupConfig(projectRoot, layer, groupId) {
-  const filePath = buildGroupConfigAbsolutePath(projectRoot, layer, groupId);
+function readGroupConfig(projectRoot, groupId) {
+  const filePath = buildGroupConfigAbsolutePath(projectRoot, groupId);
 
   try {
     return parseSimpleYaml(fs.readFileSync(filePath, "utf8"));
@@ -54,8 +46,8 @@ function readGroupConfig(projectRoot, layer, groupId) {
   }
 }
 
-function writeGroupConfig(projectRoot, layer, groupId, config) {
-  const filePath = buildGroupConfigAbsolutePath(projectRoot, layer, groupId);
+function writeGroupConfig(projectRoot, groupId, config) {
+  const filePath = buildGroupConfigAbsolutePath(projectRoot, groupId);
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
   fs.writeFileSync(
     filePath,
@@ -65,8 +57,8 @@ function writeGroupConfig(projectRoot, layer, groupId, config) {
   return filePath;
 }
 
-function createGroup(projectRoot, layer, groupId, options = {}) {
-  const groupDir = path.dirname(buildGroupConfigAbsolutePath(projectRoot, layer, groupId));
+function createGroup(projectRoot, groupId, options = {}) {
+  const groupDir = path.dirname(buildGroupConfigAbsolutePath(projectRoot, groupId));
 
   if (fs.existsSync(groupDir)) {
     if (!options.force) {
@@ -77,17 +69,17 @@ function createGroup(projectRoot, layer, groupId, options = {}) {
   }
 
   fs.mkdirSync(path.join(groupDir, "mod"), { recursive: true });
-  writeGroupConfig(projectRoot, layer, groupId, {});
+  writeGroupConfig(projectRoot, groupId, {});
 
   return {
     groupDir,
     groupId: normalizeEntityId(groupId),
-    layer: normalizeLayer(layer)
+    layer: GROUP_WRITE_LAYER
   };
 }
 
-function addGroupEntry(projectRoot, layer, groupId, entryType, entryId, options = {}) {
-  const config = readGroupConfig(projectRoot, layer, groupId);
+function addGroupEntry(projectRoot, groupId, entryType, entryId, options = {}) {
+  const config = readGroupConfig(projectRoot, groupId);
   const normalizedEntryType = String(entryType || "").trim().toLowerCase();
   const key =
     normalizedEntryType === "group"
@@ -104,15 +96,15 @@ function addGroupEntry(projectRoot, layer, groupId, entryType, entryId, options 
     throw new Error(`Unsupported group entry type: ${String(entryType || "")}`);
   }
 
-  return writeGroupConfig(projectRoot, layer, groupId, {
+  return writeGroupConfig(projectRoot, groupId, {
     ...config,
     [key]: normalizeStringList([...(config[key] || []), entryId])
   });
 }
 
-function removeGroupEntry(projectRoot, layer, groupId, entryType, entryId, options = {}) {
+function removeGroupEntry(projectRoot, groupId, entryType, entryId, options = {}) {
   const normalizedEntryId = normalizeEntityId(entryId);
-  const config = readGroupConfig(projectRoot, layer, groupId);
+  const config = readGroupConfig(projectRoot, groupId);
   const normalizedEntryType = String(entryType || "").trim().toLowerCase();
   const key =
     normalizedEntryType === "group"
@@ -133,7 +125,7 @@ function removeGroupEntry(projectRoot, layer, groupId, entryType, entryId, optio
     (existingEntryId) => existingEntryId !== normalizedEntryId
   );
 
-  return writeGroupConfig(projectRoot, layer, groupId, {
+  return writeGroupConfig(projectRoot, groupId, {
     ...config,
     [key]: nextValues
   });
@@ -143,7 +135,6 @@ export {
   buildGroupConfigAbsolutePath,
   createGroup,
   getNormalizedGroupConfig,
-  normalizeLayer,
   readGroupConfig,
   addGroupEntry,
   removeGroupEntry,

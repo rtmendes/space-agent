@@ -1,9 +1,9 @@
 export const EXECUTION_SEPARATOR = "_____javascript";
 
-const EXECUTION_CONTEXT_KEY = "__agentOneChatExecutionContext";
-const SHARED_STATE_KEY = "__agentOneChatSharedState";
+const EXECUTION_CONTEXT_KEY = "__spaceChatExecutionContext";
+const SHARED_STATE_KEY = "__spaceChatSharedState";
 const CONSOLE_METHODS = ["log", "info", "warn", "error", "debug", "dir", "table", "assert"];
-const INTERNAL_SCOPE_KEYS = new Set(["__agentOneScope", "__agentOneWindow"]);
+const INTERNAL_SCOPE_KEYS = new Set(["__spaceScope", "__spaceWindow"]);
 const WINDOW_ALIAS_KEYS = new Set(["page", "window", "globalThis", "self"]);
 const MAX_STRING_LENGTH = 220;
 const MAX_COLLECTION_ENTRIES = 8;
@@ -93,13 +93,13 @@ function createAsyncRunner(code) {
   return new AsyncFunction(
     "__agentExecution",
     `
-      const __agentOneScope = __agentExecution.scope
-      const __agentOneWindow = __agentExecution.targetWindow
+      const __spaceScope = __agentExecution.scope
+      const __spaceWindow = __agentExecution.targetWindow
       return await (async function () {
-        with (__agentOneScope) {
+        with (__spaceScope) {
 ${code}
         }
-      }).call(__agentOneWindow)
+      }).call(__spaceWindow)
     `
   );
 }
@@ -458,8 +458,8 @@ function createExecutionScope(targetWindow, sharedState) {
         return targetWindow.console;
       }
 
-      if (key === "A1") {
-        return targetWindow.A1;
+      if (key === "space") {
+        return targetWindow.space;
       }
 
       if (Reflect.has(target, key)) {
@@ -474,7 +474,7 @@ function createExecutionScope(targetWindow, sharedState) {
         return true;
       }
 
-      if (key === "A1" || WINDOW_ALIAS_KEYS.has(key) || key === "console" || key === "document") {
+      if (key === "space" || WINDOW_ALIAS_KEYS.has(key) || key === "console" || key === "document") {
         return false;
       }
 
@@ -506,7 +506,7 @@ function createExecutionScope(targetWindow, sharedState) {
 }
 
 function buildSourceUrl(runId) {
-  return `agent-one-chat-execute-${runId}.js`;
+  return `space-chat-execute-${runId}.js`;
 }
 
 function flattenExecutionMessageValue(value) {

@@ -14,7 +14,7 @@ function createHeaders(endpoint, apiKey) {
 
   if (endpoint.includes("openrouter.ai")) {
     headers["HTTP-Referer"] = window.location.origin;
-    headers["X-Title"] = "Agent One";
+    headers["X-Title"] = "Space Agent";
   }
 
   return headers;
@@ -106,8 +106,8 @@ function resolveChatRequestUrl(apiEndpoint) {
     return apiEndpoint;
   }
 
-  if (window.A1?.proxy?.buildUrl) {
-    return window.A1.proxy.buildUrl(apiEndpoint);
+  if (window.space?.proxy?.buildUrl) {
+    return window.space.proxy.buildUrl(apiEndpoint);
   }
 
   return buildProxyUrl(apiEndpoint);

@@ -300,7 +300,7 @@ async function runDesktopPackaging(platformKey, argv = process.argv.slice(2)) {
     console.warn(`Warning: ${warning}`);
   });
 
-  console.log(`Packaging Agent One for ${platformSpec.label}...`);
+  console.log(`Packaging Space Agent for ${platformSpec.label}...`);
 
   const artifacts = await build({
     projectDir: PROJECT_ROOT,

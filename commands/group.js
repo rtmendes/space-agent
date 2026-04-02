@@ -1,9 +1,8 @@
 import {
   addGroupEntry,
   createGroup,
-  normalizeLayer,
   removeGroupEntry
-} from "../server/lib/customware/group-files.js";
+} from "../server/lib/customware/group_files.js";
 
 function takeFlagValue(args, index, flagName) {
   const value = String(args[index + 1] || "");
@@ -29,21 +28,10 @@ function normalizeEntryType(value) {
   return "";
 }
 
-function parseLayerFlag(value) {
-  const layer = normalizeLayer(value);
-
-  if (!layer) {
-    throw new Error("Group layer must be L0 or L1.");
-  }
-
-  return layer;
-}
-
 function parseCreateArgs(args) {
   const options = {
     force: false,
-    groupId: "",
-    layer: "L1"
+    groupId: ""
   };
 
   for (let index = 0; index < args.length; index += 1) {
@@ -54,22 +42,20 @@ function parseCreateArgs(args) {
       continue;
     }
 
-    if (arg === "--layer") {
-      options.layer = parseLayerFlag(takeFlagValue(args, index, "--layer"));
-      index += 1;
-      continue;
-    }
-
     if (arg === "--force") {
       options.force = true;
       continue;
+    }
+
+    if (arg === "--layer") {
+      throw new Error("The group command only writes L1 groups. Remove --layer.");
     }
 
     throw new Error(`Unknown group create argument: ${arg}`);
   }
 
   if (!options.groupId) {
-    throw new Error("Usage: node A1.js group create <group-id> [--layer L0|L1] [--force]");
+    throw new Error("Usage: node space group create <group-id> [--force]");
   }
 
   return options;
@@ -80,7 +66,6 @@ function parseMembershipArgs(args, verb) {
     entryId: "",
     entryType: "",
     groupId: "",
-    layer: "L1",
     manager: false
   };
 
@@ -105,15 +90,13 @@ function parseMembershipArgs(args, verb) {
       continue;
     }
 
-    if (arg === "--layer") {
-      options.layer = parseLayerFlag(takeFlagValue(args, index, "--layer"));
-      index += 1;
-      continue;
-    }
-
     if (arg === "--manager") {
       options.manager = true;
       continue;
+    }
+
+    if (arg === "--layer") {
+      throw new Error("The group command only writes L1 groups. Remove --layer.");
     }
 
     throw new Error(`Unknown group ${verb} argument: ${arg}`);
@@ -121,7 +104,7 @@ function parseMembershipArgs(args, verb) {
 
   if (!options.groupId || !options.entryType || !options.entryId) {
     throw new Error(
-      `Usage: node A1.js group ${verb} <group-id> <user|group> <id> [--manager] [--layer L0|L1]`
+      `Usage: node space group ${verb} <group-id> <user|group> <id> [--manager]`
     );
   }
 
@@ -134,39 +117,56 @@ function describeRole(options) {
 
 export const help = {
   name: "group",
-  summary: "Manage group directories and membership relations.",
+  summary: "Manage writable L1 groups and their membership relations.",
   usage: [
-    "node A1.js group create <group-id> [--layer L0|L1] [--force]",
-    "node A1.js group add <group-id> <user|group> <id> [--manager] [--layer L0|L1]",
-    "node A1.js group remove <group-id> <user|group> <id> [--manager] [--layer L0|L1]"
+    "node space group create <group-id> [--force]",
+    "node space group add <group-id> <user|group> <id> [--manager]",
+    "node space group remove <group-id> <user|group> <id> [--manager]"
   ],
   description:
-    "Creates group directories and updates group.yaml so groups can include users, include other groups, and declare managers that are users or groups.",
+    "Creates and updates writable L1 group directories under app/L1. This command never writes L0 firmware groups. Use it to create a group, add users or groups to included_* lists, and manage managing_* lists in group.yaml.",
+  arguments: [
+    {
+      name: "<group-id>",
+      description: "Target group id. The command writes app/L1/<group-id>/group.yaml and app/L1/<group-id>/mod/."
+    },
+    {
+      name: "<user|group>",
+      description: "Entry kind for add/remove. Use user to target included_users or managing_users, or group to target included_groups or managing_groups."
+    },
+    {
+      name: "<id>",
+      description: "User id or group id to add or remove from the target group's membership or manager list."
+    }
+  ],
   options: [
     {
       flag: "create",
-      description: "Create a group directory with mod/ and group.yaml."
+      description: "Create app/L1/<group-id>/ with mod/ and group.yaml."
     },
     {
       flag: "add",
-      description: "Add a user or group as a member or manager of the target group."
+      description: "Add a user or group entry to the target group's included_* list, or to the managing_* list with --manager."
     },
     {
       flag: "remove",
-      description: "Remove a user or group from the member or manager list of the target group."
+      description: "Remove a user or group entry from the target group's included_* list, or from the managing_* list with --manager."
     },
     {
       flag: "--manager",
       description: "Target the managing_users or managing_groups list instead of included_users or included_groups."
     },
     {
-      flag: "--layer <L0|L1>",
-      description: "Target group layer. Defaults to L1."
-    },
-    {
       flag: "--force",
       description: "Replace the full group directory during create."
     }
+  ],
+  examples: [
+    "node space group create team-red",
+    "node space group add team-red user alice",
+    "node space group add team-red group qa-team",
+    "node space group add team-red user alice --manager",
+    "node space group remove team-red user alice"
   ]
 };
 
@@ -176,7 +176,7 @@ export async function execute(context) {
 
   if (subcommand === "create") {
     const options = parseCreateArgs(subcommandArgs);
-    const result = createGroup(context.projectRoot, options.layer, options.groupId, {
+    const result = createGroup(context.projectRoot, options.groupId, {
       force: options.force
     });
     console.log(`Created group ${result.layer}/${result.groupId}`);
@@ -187,7 +187,6 @@ export async function execute(context) {
     const options = parseMembershipArgs(subcommandArgs, "add");
     addGroupEntry(
       context.projectRoot,
-      options.layer,
       options.groupId,
       options.entryType,
       options.entryId,
@@ -196,7 +195,7 @@ export async function execute(context) {
       }
     );
     console.log(
-      `Added ${options.entryType} ${options.entryId} as ${describeRole(options)} of ${options.layer}/${options.groupId}`
+      `Added ${options.entryType} ${options.entryId} as ${describeRole(options)} of L1/${options.groupId}`
     );
     return 0;
   }
@@ -205,7 +204,6 @@ export async function execute(context) {
     const options = parseMembershipArgs(subcommandArgs, "remove");
     removeGroupEntry(
       context.projectRoot,
-      options.layer,
       options.groupId,
       options.entryType,
       options.entryId,
@@ -214,12 +212,12 @@ export async function execute(context) {
       }
     );
     console.log(
-      `Removed ${options.entryType} ${options.entryId} from ${describeRole(options)} list of ${options.layer}/${options.groupId}`
+      `Removed ${options.entryType} ${options.entryId} from ${describeRole(options)} list of L1/${options.groupId}`
     );
     return 0;
   }
 
   throw new Error(
-    'Unknown group subcommand. Use "node A1.js help group" for available subcommands.'
+    'Unknown group subcommand. Use "node space help group" for available subcommands.'
   );
 }

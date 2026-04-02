@@ -1,6 +1,6 @@
 export const allowAnonymous = true;
 
-const LOGIN_MIN_DURATION_MS = 500;
+const FAILED_LOGIN_MIN_DURATION_MS = 1000;
 
 function createHttpError(message, statusCode) {
   const error = new Error(message);
@@ -50,10 +50,9 @@ export async function post(context) {
       }
     };
   } catch (error) {
-    await waitForMinimumDuration(startedAtMs, LOGIN_MIN_DURATION_MS);
+    await waitForMinimumDuration(startedAtMs, FAILED_LOGIN_MIN_DURATION_MS);
     throw createHttpError(error.message || "Login failed.", 401);
   }
 
-  await waitForMinimumDuration(startedAtMs, LOGIN_MIN_DURATION_MS);
   return response;
 }

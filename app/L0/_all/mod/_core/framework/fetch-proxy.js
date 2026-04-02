@@ -1,6 +1,6 @@
 import { buildProxyUrl, isProxyableExternalUrl } from "./proxy-url.js";
 
-const FETCH_PROXY_MARKER = Symbol.for("agent-one.fetch-proxy-installed");
+const FETCH_PROXY_MARKER = Symbol.for("space.fetch-proxy-installed");
 
 function requestCanHaveBody(method) {
   return !["GET", "HEAD"].includes(String(method || "GET").toUpperCase());

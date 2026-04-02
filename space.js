@@ -129,7 +129,7 @@ async function run() {
   } catch (error) {
     if (error.code === "ERR_COMMAND_NOT_FOUND") {
       console.error(error.message);
-      console.error('Run "node A1.js help" for available commands.');
+      console.error('Run "node space help" for available commands.');
       process.exitCode = 1;
       return;
     }

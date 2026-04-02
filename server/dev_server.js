@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url";
 
 const CURRENT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = path.resolve(CURRENT_DIR, "..");
-const WATCH_TARGETS = ["A1.js", "commands", "server"].map((entry) => path.join(PROJECT_ROOT, entry));
+const WATCH_TARGETS = ["space", "commands", "server"].map((entry) => path.join(PROJECT_ROOT, entry));
 const SCAN_INTERVAL_MS = 750;
 const RESTART_DEBOUNCE_MS = 1_000;
 const SHUTDOWN_GRACE_MS = 2_000;
@@ -139,7 +139,7 @@ function scheduleHardKill(child) {
 }
 
 function startServerProcess() {
-  const args = [path.join(PROJECT_ROOT, "A1.js"), "serve", ...process.argv.slice(2)];
+  const args = [path.join(PROJECT_ROOT, "space"), "serve", ...process.argv.slice(2)];
 
   childProcess = spawn(process.execPath, args, {
     cwd: PROJECT_ROOT,
@@ -274,7 +274,7 @@ function shutdown() {
 
 async function main() {
   currentSnapshot = await buildSnapshot();
-  console.log("[dev] Watching A1.js, commands/, and server/ for server restarts.");
+  console.log("[dev] Watching space, commands/, and server/ for server restarts.");
   startServerProcess();
   startWatching();
 }

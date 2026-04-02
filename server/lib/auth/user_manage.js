@@ -8,8 +8,9 @@ import {
   normalizeUsername,
   readUserConfig,
   writeUserConfig,
-  writeUserLogins
-} from "./user-files.js";
+  writeUserLogins,
+  writeUserPasswordVerifier
+} from "./user_files.js";
 
 const GUEST_USERNAME_PREFIX = "guest_";
 const GUEST_USERNAME_ALPHABET = "abcdefghijklmnopqrstuvwxyz0123456789";
@@ -38,6 +39,7 @@ function createRandomString(length, alphabet) {
 
 function removeLegacyPasswordFields(config = {}) {
   const {
+    password: _password,
     password_iterations: _passwordIterations,
     password_salt: _passwordSalt,
     password_scheme: _passwordScheme,
@@ -47,6 +49,11 @@ function removeLegacyPasswordFields(config = {}) {
   } = config;
 
   return rest;
+}
+
+function normalizeFullName(fullName, username) {
+  const normalizedFullName = String(fullName || "").trim();
+  return normalizedFullName || String(username || "");
 }
 
 function createUser(projectRoot, username, password, options = {}) {
@@ -68,8 +75,9 @@ function createUser(projectRoot, username, password, options = {}) {
 
   ensureUserStructure(projectRoot, normalizedUsername);
   writeUserConfig(projectRoot, normalizedUsername, {
-    password: createPasswordVerifier(password)
+    full_name: normalizeFullName(options.fullName, normalizedUsername)
   });
+  writeUserPasswordVerifier(projectRoot, normalizedUsername, createPasswordVerifier(password));
   writeUserLogins(projectRoot, normalizedUsername, {});
 
   return {
@@ -96,8 +104,9 @@ function setUserPassword(projectRoot, username, password) {
 
   writeUserConfig(projectRoot, normalizedUsername, {
     ...removeLegacyPasswordFields(currentConfig),
-    password: createPasswordVerifier(password)
+    full_name: normalizeFullName(currentConfig.full_name, normalizedUsername)
   });
+  writeUserPasswordVerifier(projectRoot, normalizedUsername, createPasswordVerifier(password));
   writeUserLogins(projectRoot, normalizedUsername, {});
 
   return {

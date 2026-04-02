@@ -1,7 +1,7 @@
 import path from "node:path";
 
-import { resolveInheritedModuleProjectPath } from "../lib/customware/module-inheritance.js";
-import { toProjectPath } from "../lib/file-watch/watchdog.js";
+import { resolveInheritedModuleProjectPath } from "../lib/customware/module_inheritance.js";
+import { toProjectPath } from "../lib/file_watch/watchdog.js";
 import { sendFile, sendNotFound } from "./responses.js";
 
 function resolveModuleFilePath(projectRoot, requestPath, username, watchdog) {

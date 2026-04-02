@@ -196,7 +196,7 @@ function buildMissingExecutionResultRetryMessage(executionOutputText) {
   return [
     "Protocol correction: the last browser execution finished but returned no result.",
     `Execution output: "${summarizedOutput}"`,
-    "Agent One already runs your JavaScript inside an async function.",
+    "Space Agent already runs your JavaScript inside an async function.",
     "Use top-level await directly and end with a top-level return for the value you need.",
     "Do not wrap the whole snippet in an async IIFE like `(async () => { ... })()` unless you also return it.",
     "Execute again now. Do not stop until you have a result or a clear error."
@@ -254,10 +254,10 @@ const model = {
     const statusText = typeof this.status === "string" ? this.status.trim() : "";
 
     if (!statusText) {
-      return "Message Agent One...";
+      return "Message Space Agent...";
     }
 
-    return statusText === "Ready." ? "Ready. Message Agent One..." : statusText;
+    return statusText === "Ready." ? "Ready. Message Space Agent..." : statusText;
   },
 
   get isComposerInputDisabled() {

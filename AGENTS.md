@@ -2,24 +2,32 @@
 
 ## Introduction
 
-Agent One is a browser-first AI agent runtime.
+Space Agent is a browser-first AI agent runtime.
 
 The browser app is the primary runtime. The Node.js side exists as thin infrastructure around it for:
 
 - outbound fetch proxying when the browser would otherwise hit CORS limits
 - server-owned APIs and other narrow infrastructure contracts
-- ownership of the SQLite persistence file and integrity-safe persistence operations
 - local development and optional desktop hosting
 
 Documentation quality is one of the most important parts of this project. Without high-quality agent docs, agents go rogue and architecture drifts. Treat these files as part of the runtime, not as optional notes.
 
-This repository keeps three primary agent documentation files:
+Documentation maintenance is top priority. After any change to a repo area, update the owning `AGENTS.md` file or files in the same session before finishing.
+
+This repository currently keeps five agent documentation files: three primary files and two subtree-local files.
+
+Primary agent documentation files:
 
 - `/AGENTS.md`
 - `/app/AGENTS.md`
 - `/server/AGENTS.md`
 
 Subtree-local `AGENTS.md` files may also exist when they carry scoped guidance for a specific area such as CLI commands. Keep them aligned with the primary docs instead of treating them as a separate competing documentation system.
+
+Current subtree-local agent documentation files:
+
+- `/commands/AGENTS.md`
+- `/packaging/AGENTS.md`
 
 ## Programming Guide
 
@@ -36,6 +44,7 @@ These rules apply across the codebase:
 - keep each handler type in one predictable folder and load implementations by explicit name, config, or convention
 - apply the same deterministic loading rule to API handlers, watched-file handlers, workers, and other extension points that serve the same role
 - do not create one-off loader paths for a single feature when that feature belongs in an existing handler or extension system
+- in `server/`, name multiword scripts, modules, handler ids, and endpoint files with the object first and the verb second, and use underscores consistently, for example `file_read`, `login_check`, `user_manage`, `pages_handler`, and `path_index`
 - when multiple objects should share the same interface, prefer JavaScript classes with a shared superclass and explicit overridden methods
 - do not model shared interfaces as plain objects that are inspected at runtime to see whether a function exists
 - use ES module syntax throughout the codebase; prefer `import` and `export` and avoid CommonJS forms such as `require` and `module.exports`
@@ -49,7 +58,7 @@ These rules apply across the codebase:
 
 Top-level structure:
 
-- `A1.js`: root CLI router that discovers command modules dynamically
+- `space`: root CLI router that discovers command modules dynamically
 - `commands/`: CLI command modules such as `serve`, `help`, `version`, and `update`
 - `app/`: browser runtime, layered customware model, shared frontend modules, and browser test surfaces
 - `server/`: thin local infrastructure runtime, with root page shells under `server/pages/`, request routing under `server/router/`, API hosting, fetch proxying, watched-file indexes, auth/session infrastructure, and Git support code for update flows
@@ -62,7 +71,7 @@ Project concepts:
 - browser modules are namespaced as `mod/<author>/<repo>/...`
 - the layered browser model is `app/L0` firmware, `app/L1` group customware, and `app/L2` user customware
 - `app/L1` and `app/L2` are transient runtime state and are gitignored; do not treat them as durable repo-owned sample content
-- `app/L2/<username>/user.yaml` stores the user's login verifier under a `password:` object, and `app/L2/<username>/logins.json` stores active session codes
+- `app/L2/<username>/user.yaml` stores user metadata such as `full_name`; auth state lives under `app/L2/<username>/meta/`, where `password.json` stores the password verifier and `logins.json` stores active session codes
 - the server resolves `/mod/...` requests through that layered inheritance model using watchdog-backed indexes
 - the browser now authenticates through the server at `/login`, uses a server-issued session cookie for both API and file access, and clears that session through `/logout`
 - the login screen can currently spawn temporary guest users through a public server endpoint; those guests are ordinary `app/L2/<username>/` users with generated credentials
@@ -76,17 +85,17 @@ Project concepts:
 
 Supported CLI surface:
 
-- `node A1.js serve`
-- `node A1.js update`
-- `node A1.js help`
-- `node A1.js --help`
-- `node A1.js version`
-- `node A1.js --version`
-- `node A1.js user create`
-- `node A1.js user password`
-- `node A1.js group create`
-- `node A1.js group add`
-- `node A1.js group remove`
+- `node space serve`
+- `node space update`
+- `node space help`
+- `node space --help`
+- `node space version`
+- `node space --version`
+- `node space user create`
+- `node space user password`
+- `node space group create`
+- `node space group add`
+- `node space group remove`
 
 Development and packaging surface:
 
@@ -94,19 +103,21 @@ Development and packaging surface:
 - `npm install` for the standard source checkout
 - `npm install --omit=optional` when native optional dependencies are not expected to work
 - `npm run dev` to run the local dev supervisor
-- `node A1.js serve` to run the server directly
+- `node space serve` to run the server directly
 - `npm run install:packaging` to install packaging-only dependencies
 - `npm run desktop:dev`, `npm run desktop:pack`, and `npm run desktop:dist` for the Electron host and packaging flow
 
 ## Documentation Maintenance
 
-All agent-facing documentation lives in the three `AGENTS.md` files. The root `README.md` is intentionally removed so the project has one documentation system for agents instead of split, drifting sources.
+All agent-facing documentation lives in the repository `AGENTS.md` files. The root `README.md` is intentionally removed so the project has one documentation system for agents instead of split, drifting sources.
 
 Documentation ownership:
 
 - `/AGENTS.md` owns repo-wide rules, project identity, top-level structure, CLI surface, packaging surface, and documentation policy
 - `/app/AGENTS.md` owns browser-runtime architecture, layer rules, frontend patterns, and app-specific current state
 - `/server/AGENTS.md` owns server responsibilities, API contracts, watched-file/customware infrastructure, and server-specific current state
+- `/commands/AGENTS.md` owns CLI-module conventions and the command-tree-specific contract under `commands/`
+- `/packaging/AGENTS.md` owns native-host and packaging-surface guidance under `packaging/`
 - subtree-local `AGENTS.md` files may document narrower implementation areas when they stay consistent with the primary docs
 
 Documentation rules:

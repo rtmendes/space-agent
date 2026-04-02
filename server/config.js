@@ -14,7 +14,7 @@ const APP_DIR = L0_DIR;
 const ASSET_DIR = path.join(L0_DIR, "assets");
 const API_DIR = path.join(CURRENT_DIR, "api");
 const PAGES_DIR = path.join(CURRENT_DIR, "pages");
-const FILE_WATCH_CONFIG_PATH = path.join(CURRENT_DIR, "lib", "file-watch", "config.yaml");
+const FILE_WATCH_CONFIG_PATH = path.join(CURRENT_DIR, "lib", "file_watch", "config.yaml");
 
 export {
   API_DIR,

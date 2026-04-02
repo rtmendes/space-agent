@@ -1,7 +1,7 @@
 import { Readable } from "node:stream";
 
 import { applyApiCorsHeaders } from "./cors.js";
-import { readRequestBody, requestCanHaveBody } from "./request-body.js";
+import { readRequestBody, requestCanHaveBody } from "./request_body.js";
 import { sendJson } from "./responses.js";
 
 const UPSTREAM_REQUEST_HEADERS_TO_STRIP = new Set([
@@ -37,10 +37,10 @@ const RESPONSE_HEADERS_TO_STRIP = new Set([
   "transfer-encoding"
 ]);
 
-const PROXY_TARGET_HEADER = "x-agent-one-target-url";
-const PROXY_RESPONSE_TARGET_HEADER = "x-agent-one-proxy-target-url";
-const PROXY_RESPONSE_FINAL_HEADER = "x-agent-one-proxy-final-url";
-const PROXY_RESPONSE_REDIRECTED_HEADER = "x-agent-one-proxy-redirected";
+const PROXY_TARGET_HEADER = "x-space-target-url";
+const PROXY_RESPONSE_TARGET_HEADER = "x-space-proxy-target-url";
+const PROXY_RESPONSE_FINAL_HEADER = "x-space-proxy-final-url";
+const PROXY_RESPONSE_REDIRECTED_HEADER = "x-space-proxy-redirected";
 
 function getTargetUrl(requestUrl, headers) {
   return requestUrl.searchParams.get("url") || headers[PROXY_TARGET_HEADER];

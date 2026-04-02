@@ -1,4 +1,4 @@
-import { createHttpError, readAppFile } from "../lib/customware/file-access.js";
+import { createHttpError, readAppFile } from "../lib/customware/file_access.js";
 
 function readPayload(context) {
   return context.body && typeof context.body === "object" && !Buffer.isBuffer(context.body)

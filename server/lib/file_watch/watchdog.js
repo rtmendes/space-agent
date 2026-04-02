@@ -2,8 +2,8 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
-import { globToRegExp, normalizePathSegment } from "../utils/app-files.js";
-import { parseSimpleYaml } from "../utils/yaml-lite.js";
+import { globToRegExp, normalizePathSegment } from "../utils/app_files.js";
+import { parseSimpleYaml } from "../utils/yaml_lite.js";
 
 const REFRESH_DEBOUNCE_MS = 75;
 const RECONCILE_INTERVAL_MS = 1_000;
@@ -153,8 +153,8 @@ function loadWatchdogConfig(configPath) {
     throw new Error(`Watchdog config must define at least one handler: ${configPath}`);
   }
 
-  if (!handlerConfigs.some((handlerConfig) => handlerConfig.name === "path-index")) {
-    throw new Error(`Watchdog config must define a "path-index" handler: ${configPath}`);
+  if (!handlerConfigs.some((handlerConfig) => handlerConfig.name === "path_index")) {
+    throw new Error(`Watchdog config must define a "path_index" handler: ${configPath}`);
   }
 
   return {
@@ -796,7 +796,7 @@ export function createWatchdog(options = {}) {
   }
 
   function getPathIndex() {
-    return handlerStates.get("path-index") || Object.create(null);
+    return handlerStates.get("path_index") || Object.create(null);
   }
 
   return {

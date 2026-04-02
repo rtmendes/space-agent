@@ -1,6 +1,6 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 
-import { normalizePathSegment } from "../lib/utils/app-files.js";
+import { normalizePathSegment } from "../lib/utils/app_files.js";
 
 const requestContextStorage = new AsyncLocalStorage();
 

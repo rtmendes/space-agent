@@ -161,7 +161,7 @@
       x-data="adminShell()"
       x-init="init()"
       x-destroy="destroy()"
-      @agent-one-admin-reload-index.window="reloadMain()"
+      @space-admin-reload-index.window="reloadMain()"
       @pointermove.window="handlePointerMove($event)"
       @pointerup.window="stopDrag($event)"
       @pointercancel.window="stopDrag($event)"
@@ -185,7 +185,7 @@
         ></button>
       </div>
       <section class="pane main-pane" aria-label="Main application">
-        <iframe x-ref="mainFrame" class="main-frame" title="Agent One main app" src="/index.html"></iframe>
+        <iframe x-ref="mainFrame" class="main-frame" title="Space Agent main app" src="/index.html"></iframe>
       </section>
     </div>
   </body>

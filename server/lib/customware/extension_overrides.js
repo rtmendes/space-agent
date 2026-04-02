@@ -1,4 +1,4 @@
-import { globToRegExp, normalizePathSegment } from "../utils/app-files.js";
+import { globToRegExp, normalizePathSegment } from "../utils/app_files.js";
 import { parseProjectModuleExtensionFilePath } from "./layout.js";
 import { collectAccessibleModuleEntries, selectOverrideEntries } from "./overrides.js";
 
@@ -38,7 +38,7 @@ function listResolvedExtensionRequestPaths(options = {}) {
   }
 
   const accessibleEntries = collectAccessibleModuleEntries(watchdog.getPaths(), {
-    groupIndex: typeof watchdog.getIndex === "function" ? watchdog.getIndex("group-index") : null,
+    groupIndex: typeof watchdog.getIndex === "function" ? watchdog.getIndex("group_index") : null,
     parseProjectPath: parseProjectModuleExtensionFilePath,
     username
   }).filter((entry) => matchesExtensionPattern(entry, compiledPatterns));

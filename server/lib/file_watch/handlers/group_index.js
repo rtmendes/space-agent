@@ -1,18 +1,18 @@
-import { buildUserIndexSnapshot } from "../../auth/user-index.js";
+import { buildGroupIndexSnapshot } from "../../customware/group_index.js";
 import { WatchdogHandler } from "../watchdog.js";
 
-export default class UserIndexHandler extends WatchdogHandler {
+export default class GroupIndexHandler extends WatchdogHandler {
   createInitialState() {
-    return buildUserIndexSnapshot({
+    return buildGroupIndexSnapshot({
       filePaths: [],
       projectRoot: this.projectRoot
     });
   }
 
   rebuild(context) {
-    const pathIndex = context.getIndex("path-index") || {};
+    const pathIndex = context.getIndex("path_index") || {};
 
-    this.state = buildUserIndexSnapshot({
+    this.state = buildGroupIndexSnapshot({
       filePaths: Object.keys(pathIndex),
       projectRoot: this.projectRoot
     });

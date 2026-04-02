@@ -1,4 +1,4 @@
-import { createUser, setUserPassword } from "../server/lib/auth/manage-users.js";
+import { createUser, setUserPassword } from "../server/lib/auth/user_manage.js";
 
 function takeFlagValue(args, index, flagName) {
   const value = String(args[index + 1] || "");
@@ -13,6 +13,7 @@ function takeFlagValue(args, index, flagName) {
 function parseCreateArgs(args) {
   const options = {
     force: false,
+    fullName: "",
     password: "",
     username: ""
   };
@@ -31,6 +32,12 @@ function parseCreateArgs(args) {
       continue;
     }
 
+    if (arg === "--full-name") {
+      options.fullName = takeFlagValue(args, index, "--full-name");
+      index += 1;
+      continue;
+    }
+
     if (arg === "--force") {
       options.force = true;
       continue;
@@ -40,7 +47,9 @@ function parseCreateArgs(args) {
   }
 
   if (!options.username || !options.password) {
-    throw new Error("Usage: node A1.js user create <username> --password <password> [--force]");
+    throw new Error(
+      "Usage: node space user create <username> --password <password> [--full-name <name>] [--force]"
+    );
   }
 
   return options;
@@ -70,7 +79,7 @@ function parsePasswordArgs(args) {
   }
 
   if (!options.username || !options.password) {
-    throw new Error("Usage: node A1.js user password <username> --password <password>");
+    throw new Error("Usage: node space user password <username> --password <password>");
   }
 
   return options;
@@ -80,19 +89,29 @@ export const help = {
   name: "user",
   summary: "Manage L2 users and passwords.",
   usage: [
-    "node A1.js user create <username> --password <password> [--force]",
-    "node A1.js user password <username> --password <password>"
+    "node space user create <username> --password <password> [--full-name <name>] [--force]",
+    "node space user password <username> --password <password>"
   ],
   description:
-    "Creates L2 users, rewrites their SCRAM password verifier in user.yaml, and clears existing login sessions in logins.json when the password changes.",
+    "Creates L2 users, stores user metadata in user.yaml, stores the password verifier in meta/password.json, and clears existing login sessions in meta/logins.json when the password changes.",
+  arguments: [
+    {
+      name: "<username>",
+      description: "User id under app/L2/<username>/."
+    }
+  ],
   options: [
     {
       flag: "create",
-      description: "Create a user directory with user.yaml, logins.json, and mod/."
+      description: "Create a user directory with user.yaml, meta/password.json, meta/logins.json, and mod/."
     },
     {
       flag: "password",
       description: "Reset a user's password and clear existing sessions."
+    },
+    {
+      flag: "--full-name <name>",
+      description: "Full name written to user.yaml. Defaults to the user id."
     },
     {
       flag: "--password <password>",
@@ -102,6 +121,11 @@ export const help = {
       flag: "--force",
       description: "Replace the full user directory during create."
     }
+  ],
+  examples: [
+    "node space user create alice --password secret123",
+    "node space user create alice --password secret123 --full-name \"Alice Example\"",
+    "node space user password alice --password newsecret456"
   ]
 };
 
@@ -112,7 +136,8 @@ export async function execute(context) {
   if (subcommand === "create") {
     const options = parseCreateArgs(subcommandArgs);
     const result = createUser(context.projectRoot, options.username, options.password, {
-      force: options.force
+      force: options.force,
+      fullName: options.fullName
     });
     console.log(`Created user ${result.username}`);
     return 0;
@@ -126,6 +151,6 @@ export async function execute(context) {
   }
 
   throw new Error(
-    'Unknown user subcommand. Use "node A1.js help user" for available subcommands.'
+    'Unknown user subcommand. Use "node space help user" for available subcommands.'
   );
 }

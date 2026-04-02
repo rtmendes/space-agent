@@ -2,9 +2,11 @@
 
 ## Purpose
 
-`app/` is the primary Agent One runtime.
+`app/` is the primary Space Agent runtime.
 
 Keep agent orchestration, prompt construction, tool flow, state management, user interaction, and optimistic UX in the browser whenever possible. Server-backed work in this tree should be browser clients for explicit server APIs, not server-side orchestration leaking into the frontend.
+
+Documentation is top priority for this area. After any change under `app/` or any app-facing contract change owned here, update this file in the same session before finishing.
 
 ## Structure
 
@@ -34,6 +36,7 @@ Current shared module locations:
 - `L1` contains per-group customware; `_all` and `_admin` are special groups
 - `L2` contains per-user customware; users should only write inside their own `L2/<username>/`
 - `L1` and `L2` are transient runtime state and are gitignored; do not document repo-owned example content there as if it were durable framework structure
+- `app/L2/<username>/user.yaml` stores user metadata such as `full_name`; auth state lives under `app/L2/<username>/meta/`
 - groups may include users and other groups, and may declare managers that can write to that group's `L1` area
 - group definitions live in `group.yaml` files under `app/L0/<group-id>/` and `app/L1/<group-id>/`
 - read permission rules are explicit: users can read their own `L2/<username>/`, and can read `L0/<group>/` and `L1/<group>/` only for groups they belong to
@@ -54,15 +57,15 @@ Current shared module locations:
 - use Alpine handlers such as `@click`, `@submit.prevent`, `@input`, `@keydown`, `x-model`, `x-text`, `x-ref`, `x-init`, and `x-destroy` instead of wiring most behavior through manual `querySelector` listeners
 - pass DOM references into stores from Alpine via `x-ref`; do not make stores scan the whole document when direct refs will do
 - keep stores responsible for state, persistence, async flows, and orchestration; move large render-only helpers into separate modules when templating alone becomes too dense
-- expose shared browser-facing APIs through the `A1` runtime namespace
-- keep feature-specific runtime state in the owning feature namespace or store, such as `A1.currentChat`, not in generic runtime globals
+- expose shared browser-facing APIs through the `space` runtime namespace
+- keep feature-specific runtime state in the owning feature namespace or store, such as `space.currentChat`, not in generic runtime globals
 - keep new runtime features in module folders, not in ad hoc top-level static paths
 - legacy extension helpers still exist under the framework area; do not expand them casually if the module-based `/mod/...` model already covers the use case
 
 ## Current State
 
 - `server/pages/index.html` and `server/pages/admin.html` are plain module-backed shells; the server router decides whether to serve them or redirect to `/login`
-- `server/pages/login.html` contains the login submit flow inline, can create a temporary guest account through `/api/create_guest`, and exchanges credentials for a server session before redirecting to `/`
+- `server/pages/login.html` contains the login submit flow inline, can create a temporary guest account through `/api/guest_create`, and exchanges credentials for a server session before redirecting to `/`
 - `/logout` is handled entirely by the server pages layer; there is no standalone logout page shell in `app/` or `server/pages/`
 - browser-side file changes still require a manual browser refresh; live reload is not wired into the app runtime yet
 - when app structure, layer behavior, module layout, entry shells, or frontend conventions change, update this file in the same session

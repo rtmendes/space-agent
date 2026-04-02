@@ -4,9 +4,11 @@ function normalizeHelpData(commandName, commandModule) {
   return {
     name: help.name || commandName,
     summary: help.summary || "",
-    usage: Array.isArray(help.usage) ? help.usage : [help.usage || `node A1.js ${commandName}`],
+    usage: Array.isArray(help.usage) ? help.usage : [help.usage || `node space ${commandName}`],
     description: help.description || "",
-    options: Array.isArray(help.options) ? help.options : []
+    arguments: Array.isArray(help.arguments) ? help.arguments : [],
+    options: Array.isArray(help.options) ? help.options : [],
+    examples: Array.isArray(help.examples) ? help.examples : []
   };
 }
 
@@ -16,10 +18,10 @@ function printCommandList(helpEntries) {
     0
   );
 
-  console.log("Agent One CLI");
+  console.log("Space Agent CLI");
   console.log("");
   console.log("Usage:");
-  console.log("  node A1.js <command> [args]");
+  console.log("  node space <command> [args]");
   console.log("");
   console.log("Commands:");
 
@@ -29,7 +31,7 @@ function printCommandList(helpEntries) {
   });
 
   console.log("");
-  console.log('Run "node A1.js help <command>" for details.');
+  console.log('Run "node space help <command>" for details.');
 }
 
 function printCommandHelp(entry) {
@@ -51,6 +53,15 @@ function printCommandHelp(entry) {
     console.log(entry.description);
   }
 
+  if (entry.arguments.length) {
+    console.log("");
+    console.log("Arguments:");
+    entry.arguments.forEach((argument) => {
+      console.log(`  ${argument.name}`);
+      console.log(`    ${argument.description}`);
+    });
+  }
+
   if (entry.options.length) {
     console.log("");
     console.log("Options:");
@@ -59,12 +70,20 @@ function printCommandHelp(entry) {
       console.log(`    ${option.description}`);
     });
   }
+
+  if (entry.examples.length) {
+    console.log("");
+    console.log("Examples:");
+    entry.examples.forEach((example) => {
+      console.log(`  ${example}`);
+    });
+  }
 }
 
 export const help = {
   name: "help",
   summary: "Show command help.",
-  usage: ["node A1.js help", "node A1.js --help", "node A1.js help <command>", "node A1.js --help <command>"],
+  usage: ["node space help", "node space --help", "node space help <command>", "node space --help <command>"],
   description: "Lists all available commands or shows detailed help for one command."
 };
 

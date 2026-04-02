@@ -1,7 +1,7 @@
-import { createIsomorphicGitClient } from "./isomorphic-handler.js";
-import { createNativeGitClient } from "./native-handler.js";
-import { createNodeGitClient } from "./nodegit-handler.js";
-import { assertGitClient } from "./client-interface.js";
+import { createIsomorphicGitClient } from "./isomorphic_handler.js";
+import { createNativeGitClient } from "./native_handler.js";
+import { createNodeGitClient } from "./nodegit_handler.js";
+import { assertGitClient } from "./client_interface.js";
 import { normalizeBackendName, resolveGitContext } from "./shared.js";
 
 const BACKEND_FACTORIES = {
@@ -20,7 +20,7 @@ function buildUnavailableBackendMessage(attempts) {
 
 export async function createGitClient({ projectRoot }) {
   const gitContext = await resolveGitContext(projectRoot);
-  const requestedBackend = normalizeBackendName(process.env.A1_GIT_BACKEND);
+  const requestedBackend = normalizeBackendName(process.env.SPACE_GIT_BACKEND);
   const backendOrder = requestedBackend ? [requestedBackend] : DEFAULT_BACKEND_ORDER;
   const attempts = [];
 

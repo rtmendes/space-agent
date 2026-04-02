@@ -4,13 +4,13 @@ import {
   createRequestContext,
   ensureAuthenticatedRequestContext,
   runWithRequestContext
-} from "./request-context.js";
-import { handlePageRequest } from "./pages-handler.js";
+} from "./request_context.js";
+import { handlePageRequest } from "./pages_handler.js";
 import { proxyExternalRequest } from "./proxy.js";
 import { sendApiResult, sendJson } from "./responses.js";
 import { applyApiCorsHeaders, handleApiPreflight } from "./cors.js";
-import { handleModuleRequest } from "./mod-handler.js";
-import { readParsedRequestBody } from "./request-body.js";
+import { handleModuleRequest } from "./mod_handler.js";
+import { readParsedRequestBody } from "./request_body.js";
 
 function createParamsObject(searchParams) {
   const params = Object.create(null);

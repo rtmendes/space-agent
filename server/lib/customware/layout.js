@@ -1,4 +1,4 @@
-import { normalizePathSegment } from "../utils/app-files.js";
+import { normalizePathSegment } from "../utils/app_files.js";
 
 function stripTrailingSlash(value) {
   const text = String(value || "");
@@ -233,7 +233,27 @@ function parseProjectUserConfigPath(projectPath) {
 }
 
 function parseProjectUserLoginsPath(projectPath) {
-  const match = String(projectPath || "").match(/^\/app\/L2\/([^/]+)\/logins\.json$/u);
+  const match = String(projectPath || "").match(/^\/app\/L2\/([^/]+)\/meta\/logins\.json$/u);
+
+  if (!match) {
+    return null;
+  }
+
+  const username = normalizeEntityId(match[1]);
+
+  if (!username) {
+    return null;
+  }
+
+  return {
+    layer: "L2",
+    projectPath: String(projectPath),
+    username
+  };
+}
+
+function parseProjectUserPasswordPath(projectPath) {
+  const match = String(projectPath || "").match(/^\/app\/L2\/([^/]+)\/meta\/password\.json$/u);
 
   if (!match) {
     return null;
@@ -338,5 +358,6 @@ export {
   parseProjectModuleFilePath,
   parseProjectUserConfigPath,
   parseProjectUserDirectoryPath,
-  parseProjectUserLoginsPath
+  parseProjectUserLoginsPath,
+  parseProjectUserPasswordPath
 };

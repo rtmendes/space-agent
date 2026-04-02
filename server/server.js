@@ -11,7 +11,7 @@ async function startServer(overrides = {}) {
 
 async function runServeCli(overrides = {}) {
   const app = await startServer(overrides);
-  console.log(`agent-one server listening at ${app.browserUrl}`);
+  console.log(`space server listening at ${app.browserUrl}`);
   return app;
 }
 
@@ -19,7 +19,7 @@ const currentFilePath = fileURLToPath(import.meta.url);
 
 if (process.argv[1] && path.resolve(process.argv[1]) === currentFilePath) {
   runServeCli().catch((error) => {
-    console.error("Failed to start agent-one server.");
+    console.error("Failed to start space server.");
     console.error(error);
     process.exit(1);
   });

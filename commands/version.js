@@ -23,9 +23,9 @@ function readCommitCount(projectRoot, rangeArgs) {
 export const help = {
   name: "version",
   summary: "Print the git-derived version string.",
-  usage: ["node A1.js version", "node A1.js --version"],
+  usage: ["node space version", "node space --version"],
   description:
-    'Prints the latest git tag plus the number of commits since that tag, for example "v1.15+6". If there are no tags yet, it falls back to "v0.0+<total commits>".'
+    'Prints the latest git tag plus the number of commits since that tag when non-zero, for example "v1.15+6". If HEAD is exactly on the latest tag, it prints just that tag. If there are no tags yet, it falls back to "v0.0+<total commits>".'
 };
 
 export async function execute(context) {
@@ -35,6 +35,6 @@ export async function execute(context) {
     ? readCommitCount(context.projectRoot, [`${latestTag}..HEAD`])
     : readCommitCount(context.projectRoot, ["HEAD"]);
 
-  console.log(`${baseTag}+${commitCount}`);
+  console.log(commitCount > 0 ? `${baseTag}+${commitCount}` : baseTag);
   return 0;
 }

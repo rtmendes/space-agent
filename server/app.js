@@ -12,7 +12,7 @@ import {
 } from "./config.js";
 import { loadApiRegistry } from "./lib/api/registry.js";
 import { createAuthService } from "./lib/auth/service.js";
-import { createWatchdog } from "./lib/file-watch/watchdog.js";
+import { createWatchdog } from "./lib/file_watch/watchdog.js";
 import { sendJson } from "./router/responses.js";
 import { createRequestHandler } from "./router/router.js";
 

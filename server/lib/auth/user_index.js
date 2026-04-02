@@ -4,15 +4,18 @@ import path from "node:path";
 import {
   parseProjectUserConfigPath,
   parseProjectUserDirectoryPath,
-  parseProjectUserLoginsPath
+  parseProjectUserLoginsPath,
+  parseProjectUserPasswordPath
 } from "../customware/layout.js";
-import { parseSimpleYaml } from "../utils/yaml-lite.js";
+import { parseSimpleYaml } from "../utils/yaml_lite.js";
 import { normalizeVerifierRecord } from "./passwords.js";
 
 function createEmptyUserRecord(username) {
   return {
+    fullName: "",
     hasPassword: false,
     loginsPath: "",
+    passwordPath: "",
     projectDir: "",
     sessions: [],
     userConfigPath: "",
@@ -88,19 +91,41 @@ function buildUserIndexSnapshot(context = {}) {
     try {
       const absolutePath = path.join(projectRoot, projectPath.slice(1));
       const parsedConfig = parseSimpleYaml(fs.readFileSync(absolutePath, "utf8"));
+      userRecord.fullName = String(parsedConfig.full_name || "").trim() || userConfigInfo.username;
+    } catch (error) {
+      errors.push({
+        message: `Failed to parse user.yaml: ${error.message}`,
+        projectPath
+      });
+    }
+  });
+
+  filePaths.forEach((projectPath) => {
+    const userPasswordInfo = parseProjectUserPasswordPath(projectPath);
+
+    if (!userPasswordInfo) {
+      return;
+    }
+
+    const userRecord = ensureUser(users, userPasswordInfo.username);
+    userRecord.passwordPath = projectPath;
+
+    try {
+      const absolutePath = path.join(projectRoot, projectPath.slice(1));
+      const parsedConfig = JSON.parse(fs.readFileSync(absolutePath, "utf8"));
       const verifier = normalizeVerifierRecord(parsedConfig);
       userRecord.verifier = verifier;
       userRecord.hasPassword = Boolean(verifier);
 
       if (!verifier) {
         errors.push({
-          message: "Ignored invalid user.yaml password verifier.",
+          message: "Ignored invalid password.json verifier.",
           projectPath
         });
       }
     } catch (error) {
       errors.push({
-        message: `Failed to parse user.yaml: ${error.message}`,
+        message: `Failed to parse password.json: ${error.message}`,
         projectPath
       });
     }
@@ -161,6 +186,10 @@ function buildUserIndexSnapshot(context = {}) {
   });
 
   Object.values(users).forEach((userRecord) => {
+    if (!userRecord.fullName) {
+      userRecord.fullName = userRecord.username;
+    }
+
     userRecord.sessions.sort((left, right) =>
       String(left.sessionToken || "").localeCompare(String(right.sessionToken || ""))
     );

@@ -21,7 +21,7 @@ function resolveInheritedModuleProjectPath({ projectRoot, requestPath, username,
 
   const groupIndex =
     typeof watchdog.getIndex === "function"
-      ? watchdog.getIndex("group-index")
+      ? watchdog.getIndex("group_index")
       : createEmptyGroupIndex();
   const candidatePaths = findCandidateModuleProjectPaths(watchdog, normalizedRequestPath);
   const accessiblePaths = filterAccessibleModulePaths(candidatePaths, username, groupIndex);

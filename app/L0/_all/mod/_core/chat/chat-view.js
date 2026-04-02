@@ -728,7 +728,7 @@ export function renderMessages(thread, history, options = {}) {
     const emptyState = document.createElement("div");
     emptyState.className = "chat-empty";
     emptyState.textContent =
-      "This is Agent One, a client-side personal agent. It runs and executes code directly in your browser. Your data and settings are stored in the browser's localStorage for convenience.";
+      "This is Space Agent, a client-side personal agent. It runs and executes code directly in your browser. Your data and settings are stored in the browser's localStorage for convenience.";
     thread.classList.add("is-empty");
     thread.append(emptyState);
     window.requestAnimationFrame(() => {

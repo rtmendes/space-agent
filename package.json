@@ -1,32 +1,32 @@
 {
-  "name": "agent-one",
+  "name": "space-agent",
   "version": "0.1.0",
   "private": true,
   "description": "Browser-first AI agent with a thin Node.js server.",
   "author": "Jan Tomasek",
   "main": "packaging/desktop/main.js",
   "scripts": {
-    "start": "node A1.js serve",
-    "dev": "node server/dev-server.js",
+    "start": "node space serve",
+    "dev": "node server/dev_server.js",
     "install:packaging": "npm install --prefix packaging",
-    "desktop:dev": "node packaging/scripts/run-desktop-dev.js",
-    "desktop:pack": "node packaging/scripts/package-host.js --dir",
-    "desktop:dist": "node packaging/scripts/package-host.js",
-    "desktop:dist:mac": "node packaging/scripts/package-macos.js",
-    "package:desktop:host": "node packaging/scripts/package-host.js",
-    "package:desktop:host:dir": "node packaging/scripts/package-host.js --dir",
-    "package:desktop:macos": "node packaging/scripts/package-macos.js",
-    "package:desktop:linux": "node packaging/scripts/package-linux.js",
-    "package:desktop:windows": "node packaging/scripts/package-windows.js"
+    "desktop:dev": "node packaging/scripts/desktop-dev-run.js",
+    "desktop:pack": "node packaging/scripts/host-package.js --dir",
+    "desktop:dist": "node packaging/scripts/host-package.js",
+    "desktop:dist:mac": "node packaging/scripts/macos-package.js",
+    "package:desktop:host": "node packaging/scripts/host-package.js",
+    "package:desktop:host:dir": "node packaging/scripts/host-package.js --dir",
+    "package:desktop:macos": "node packaging/scripts/macos-package.js",
+    "package:desktop:linux": "node packaging/scripts/linux-package.js",
+    "package:desktop:windows": "node packaging/scripts/windows-package.js"
   },
   "engines": {
     "node": ">=20"
   },
   "build": {
-    "appId": "com.agentone.desktop",
-    "productName": "Agent One",
+    "appId": "com.spaceagent.desktop",
+    "productName": "Space Agent",
     "files": [
-      "A1.js",
+      "space",
       "app/**/*",
       "commands/**/*",
       "server/**/*",
@@ -64,9 +64,9 @@
     }
   },
   "nodejsformobile": {
-    "entry": "A1.js",
+    "entry": "space",
     "defaultCommand": "serve",
-    "purpose": "Thin mobile-compatible server bridge for fetch proxying and SQLite access."
+    "purpose": "Thin mobile-compatible server bridge for fetch proxying and local infrastructure."
   },
   "dependencies": {
     "isomorphic-git": "^1.37.4"

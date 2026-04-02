@@ -5,7 +5,7 @@ export function get(context) {
 
   return {
     ok: true,
-    name: "agent-one-server",
+    name: "space-agent-server",
     browserAppUrl,
     user: context.user || null,
   };

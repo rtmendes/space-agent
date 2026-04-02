@@ -1,7 +1,7 @@
-import { createGitClient } from "../server/lib/git/create-client.js";
+import { createGitClient } from "../server/lib/git/client_create.js";
 
 const DEFAULT_REMOTE = "origin";
-const UPDATE_BRANCH_CONFIG_KEY = "agent-one.updateBranch";
+const UPDATE_BRANCH_CONFIG_KEY = "space.updateBranch";
 
 function parseUpdateArgs(args) {
   let target = null;
@@ -206,21 +206,48 @@ export const help = {
   name: "update",
   summary: "Fetch and apply source-checkout updates from the git repository.",
   usage: [
-    "node A1.js update",
-    "node A1.js update --branch <branch>",
-    "node A1.js update <branch>",
-    "node A1.js update <version-tag>",
-    "node A1.js update <commit>"
+    "node space update",
+    "node space update --branch <branch>",
+    "node space update <branch>",
+    "node space update <version-tag>",
+    "node space update <commit>"
   ],
   description:
-    "For source checkouts only. The updater prefers native Git, then NodeGit when installed and loadable, then isomorphic-git. Without an argument, it fast-forwards the current branch from origin, or reconnects from detached HEAD to the remembered or default origin branch first. You can also target a branch explicitly with --branch <branch> or a bare branch name. Version tags and short/full commit hashes move the current or remembered branch to that exact revision when possible, falling back to detached HEAD only when no branch can be recovered."
+    "For source checkouts only. The updater prefers native Git, then NodeGit when installed and loadable, then isomorphic-git. Without an argument, it fast-forwards the current branch from origin, or reconnects from detached HEAD to the remembered or default origin branch first. You can also target a branch explicitly with --branch <branch> or a bare branch name. Version tags and short/full commit hashes move the current or remembered branch to that exact revision when possible, falling back to detached HEAD only when no branch can be recovered.",
+  arguments: [
+    {
+      name: "<branch>",
+      description: "Branch name to fast-forward from origin when used as the single positional target."
+    },
+    {
+      name: "<version-tag>",
+      description: "Exact git tag to apply to the current or recovered branch."
+    },
+    {
+      name: "<commit>",
+      description: "Short or full commit hash to apply to the current or recovered branch."
+    }
+  ],
+  options: [
+    {
+      flag: "--branch <branch>",
+      description: "Force update of the named branch instead of inferring the current or positional target branch."
+    }
+  ],
+  examples: [
+    "node space update",
+    "node space update main",
+    "node space update --branch release",
+    "node space update v0.10",
+    "node space update a1b2c3d4"
+  ]
 };
 
 export async function execute(context) {
   const { branchName, target } = parseUpdateArgs(context.args);
   const gitClient = await createGitClient({ projectRoot: context.projectRoot });
 
-  if (process.env.A1_GIT_BACKEND || gitClient.name !== "native") {
+  if (process.env.SPACE_GIT_BACKEND || gitClient.name !== "native") {
     console.log(`Using ${gitClient.label}.`);
   }
 

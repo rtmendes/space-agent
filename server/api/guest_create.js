@@ -1,4 +1,4 @@
-import { createGuestUser } from "../lib/auth/manage-users.js";
+import { createGuestUser } from "../lib/auth/user_manage.js";
 
 export const allowAnonymous = true;
 

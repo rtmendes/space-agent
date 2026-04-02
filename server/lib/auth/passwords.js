@@ -6,7 +6,7 @@ const PASSWORD_ITERATIONS = 310_000;
 const PASSWORD_KEY_LENGTH = 32;
 const CLIENT_KEY_LABEL = "Client Key";
 const SERVER_KEY_LABEL = "Server Key";
-const LOGIN_AUTH_MESSAGE_PREFIX = "agent-one-login-v1";
+const LOGIN_AUTH_MESSAGE_PREFIX = "space-login-v1";
 
 function encodeBase64Url(value) {
   return Buffer.from(value).toString("base64url");

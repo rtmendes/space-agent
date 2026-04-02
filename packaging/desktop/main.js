@@ -31,7 +31,7 @@ function createWindow() {
     minWidth: 1024,
     minHeight: 720,
     backgroundColor: "#f2efe8",
-    title: "Agent One",
+    title: "Space Agent",
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
       contextIsolation: true,

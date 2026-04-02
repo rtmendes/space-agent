@@ -79,7 +79,7 @@ function readStatusValue(entry) {
 
 function createFetchOptions(NodeGit, remoteUrl) {
   const token =
-    process.env.AGENT_ONE_GIT_TOKEN ||
+    process.env.SPACE_GIT_TOKEN ||
     process.env.GITHUB_TOKEN ||
     process.env.GH_TOKEN ||
     null;
@@ -91,7 +91,7 @@ function createFetchOptions(NodeGit, remoteUrl) {
   };
 
   if (token) {
-    const username = process.env.AGENT_ONE_GIT_USERNAME || process.env.GIT_USERNAME || "git";
+    const username = process.env.SPACE_GIT_USERNAME || process.env.GIT_USERNAME || "git";
     callbacks.credentials = () => NodeGit.Cred.userpassPlaintextNew(username, token);
   } else if (isSshLikeRemoteUrl(remoteUrl) && typeof NodeGit.Cred?.sshKeyFromAgent === "function") {
     callbacks.credentials = (_url, userName) => NodeGit.Cred.sshKeyFromAgent(userName || "git");
@@ -315,7 +315,7 @@ export async function createNodeGitClient({ projectRoot }) {
         `refs/heads/${branchName}`,
         remoteCommit.id(),
         1,
-        `agent-one update fast-forward ${branchName}`
+        `space update fast-forward ${branchName}`
       );
 
       await repo.checkoutBranch(branchName, checkoutOptions(NodeGit));
