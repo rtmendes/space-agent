@@ -29,6 +29,9 @@ Current shared module locations:
 - `app/L0/_all/mod/_core/chat/`: current chat runtime, UI, storage, execution context, and LLM client helpers
 - `app/L0/_all/mod/_core/admin/`: current admin UI modules
 - `app/L0/test/`: firmware-side test and example customware fixtures
+- frontend JS extension hook files live under each module's `ext/` folder and resolve by module-relative extension-point path, for example `mod/_core/framework/ext/_core/framework/initializer.js/initialize/start/...`
+- page-level HTML extensions follow the same pattern; for example the main `/` shell exposes `html/body/start`, and the core chat runtime attaches there through `/mod/_core/chat/ext/html/body/start/chat-page.html`
+- page-specific shells may expose their own anchors when they should not share a generic page hook; for example the admin shell uses `page/admin/body/start` and the core admin UI attaches there through `/mod/_core/admin/ext/page/admin/body/start/admin-shell.html`
 
 ## Layer Rules And Module Model
 
@@ -51,7 +54,13 @@ Current shared module locations:
 
 - keep root HTML shells thin and static; session gating for root pages belongs in the server router, not in inline boot scripts
 - keep page shells under `server/pages/` minimal; they should mount app modules rather than duplicating frontend logic there
+- keep pre-auth shell-only art or binary assets under `server/pages/res/` and load them from `/pages/res/...` instead of embedding large data blobs directly into page HTML
+- use `app/L0/_all/mod/_core/framework/colors.css` as the shared palette source for authenticated frontend surfaces; prefer its semantic purpose-based tokens over hardcoded page-local colors
+- use `app/L0/_all/mod/_core/framework/visual.css`, loaded through `index.css`, for shared backdrop primitives such as the space canvas and sparse celestial motion instead of rebuilding page backgrounds from scratch
 - use `/mod/_core/framework/initFw.js` as the shared frontend bootstrap for framework-backed pages
+- treat the extension system as the root composition primitive for the frontend runtime: `initFw.js` imports `/mod/_core/framework/extensions.js` first, that module initializes `globalThis.space`, and later framework modules build the runtime tree by exposing and extending module-scoped extension points
+- import `/mod/_core/framework/extensions.js` only once from `initFw.js`; later modules should use `globalThis.space.extend(...)` directly and should not create local `const extend = ...` aliases just to forward the same global
+- use `space.extend(import.meta, fn)` for extensible functions; when a function represents an object-style or class-style branch in the runtime tree, pass an explicit relative extension-point name such as `space.extend(import.meta, "Initializer/setDeviceClass", fn)`
 - prefer Alpine stores created with `createStore(...)` for feature controllers
 - gate store-dependent component content with `x-data` and `template x-if="$store.<name>"`
 - use Alpine handlers such as `@click`, `@submit.prevent`, `@input`, `@keydown`, `x-model`, `x-text`, `x-ref`, `x-init`, and `x-destroy` instead of wiring most behavior through manual `querySelector` listeners
@@ -61,11 +70,35 @@ Current shared module locations:
 - keep feature-specific runtime state in the owning feature namespace or store, such as `space.currentChat`, not in generic runtime globals
 - keep new runtime features in module folders, not in ad hoc top-level static paths
 - legacy extension helpers still exist under the framework area; do not expand them casually if the module-based `/mod/...` model already covers the use case
+- wrapped functions expose their resolved extension point at `fn.extensionPoint`; use that in the browser console when debugging where matching extension files belong
+- cache empty extension lookups as valid results; a missing extension point should not trigger repeated `/api/extensions_load` polling during the same cache lifetime
+- uncached extension lookups are batched to one `/api/extensions_load` request per frame; keep extension discovery bursty and declarative so the batcher can collapse multiple JS and HTML hook lookups together during bootstrap and DOM scans
+
+## Visual Guidance
+
+Space Agent frontend work should look like one deliberate system rather than a mix of unrelated component-library defaults.
+
+- minimal first: solve hierarchy with spacing, alignment, type scale, and one strong surface before adding extra panels, dividers, chips, or decorative UI
+- dark space environment: use the semantic color tokens from `app/L0/_all/mod/_core/framework/colors.css` by purpose and use the shared space backdrop from `app/L0/_all/mod/_core/framework/visual.css`; do not invent page-local background systems when the shared one fits
+- paused light mode: light mode is paused for new frontend work, and the old light aliases in `colors.css` are migration compatibility only, not a design target
+- public shell mirroring: public shells that cannot load authenticated `/mod/...` assets, such as `/login`, should mirror the same semantic token names and backdrop recipe locally so they stay aligned with the shared design system
+- restrained atmosphere: keep the space direction calm and intentional, with deep navy canvases, subtle starfield texture, and soft accent glow rather than noisy sci-fi chrome or neon overload
+- rare ambient motion: if motion is used in the backdrop, keep it sparse and atmospheric, for example an occasional shooting star; it should make the page feel alive without becoming a looping attention trap
+- subtle depth response: layered backdrops may use small cursor or touch parallax shifts, with deeper layers moving less than foreground layers; touch-driven parallax may settle at the tapped position instead of snapping back between taps; keep the effect gentle and disable or soften it when reduced motion is preferred
+- usable contrast: body text, controls, focus states, and status states must remain clear and comfortable for long sessions; do not trade readability for mood
+- soft geometry: use a 4 px spacing rhythm, keep controls compact, prefer 14 to 16 px radii for inputs and buttons, and 22 to 28 px radii for major panels and shells
+- compact mobile layouts: mobile screens should reduce padding, collapse secondary decoration, and preserve clear tap targets without turning the layout into stacked oversized cards
+- reusable promotion rule: when a style pattern appears in more than one place, move it into shared framework CSS instead of cloning slightly different local versions
 
 ## Current State
 
 - `server/pages/index.html` and `server/pages/admin.html` are plain module-backed shells; the server router decides whether to serve them or redirect to `/login`
-- `server/pages/login.html` contains the login submit flow inline, can create a temporary guest account through `/api/guest_create`, and exchanges credentials for a server session before redirecting to `/`
+- `server/pages/index.html` now exposes the `html/body/start` extension anchor and the core chat shell is injected there from `/mod/_core/chat/ext/html/body/start/chat-page.html` rather than being hardcoded directly in the page shell
+- `server/pages/admin.html` now exposes the `page/admin/body/start` extension anchor and the core admin shell is injected there from `/mod/_core/admin/ext/page/admin/body/start/admin-shell.html`
+- `server/pages/login.html` contains the login submit flow inline, can create a temporary guest account through `/api/guest_create`, reuses the primary username and password fields to present guest credentials before continuing, exchanges credentials for a server session before redirecting to `/`, and is the current reference implementation of the minimal dark space visual draft, including the two-column intro with the floating astronaut mascot
+- `/login` is public and should not depend on authenticated `/mod/...` assets; when it needs theme tokens or the shared space backdrop before login, mirror the shared semantic palette and backdrop recipe locally instead of inventing a separate visual system
 - `/logout` is handled entirely by the server pages layer; there is no standalone logout page shell in `app/` or `server/pages/`
 - browser-side file changes still require a manual browser refresh; live reload is not wired into the app runtime yet
+- `app/L0/_all/mod/_core/framework/visual.css` now owns the shared space canvas backdrop, including layered tiled star bands with mixed sheet rotation, sparse shooting-star motion, and fine-grained CSS-variable hooks for subtle pointer or touch parallax
+- the current frontend runtime tree starts at `/mod/_core/framework/initFw.js`, installs `space.extend` from `/mod/_core/framework/extensions.js`, runs extensible framework bootstrap functions such as `/mod/_core/framework/initializer.js`, and then continues composing further runtime behavior by module and extension point
 - when app structure, layer behavior, module layout, entry shells, or frontend conventions change, update this file in the same session

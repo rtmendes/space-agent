@@ -9,6 +9,7 @@ const LEGACY_ROUTE_REDIRECTS = new Map([
 ]);
 
 const LOGOUT_ROUTE = "/logout";
+const PAGE_RESOURCE_PREFIX = "/pages/res/";
 
 function createSessionCleanupHeaders(requestContext, auth) {
   if (
@@ -106,11 +107,38 @@ function resolvePageRequest(pagesDir, pathname) {
   };
 }
 
+function resolvePageResourceRequest(pagesDir, pathname) {
+  const normalizedPath = path.posix.normalize(pathname || "/");
+
+  if (!normalizedPath.startsWith(PAGE_RESOURCE_PREFIX)) {
+    return null;
+  }
+
+  return {
+    filePath: resolvePathWithinRoot(pagesDir, normalizedPath.slice("/pages".length)),
+    kind: "resource"
+  };
+}
+
 async function handlePageRequest(res, requestUrl, options = {}) {
   const { auth, pagesDir, requestContext } = options;
 
   if (requestUrl.pathname === LOGOUT_ROUTE) {
     await handleLogoutRequest(res, options);
+    return;
+  }
+
+  const pageResourceRequest = resolvePageResourceRequest(pagesDir, requestUrl.pathname);
+
+  if (pageResourceRequest) {
+    if (!pageResourceRequest.filePath) {
+      sendNotFound(res, createSessionCleanupHeaders(requestContext, auth));
+      return;
+    }
+
+    sendFile(res, pageResourceRequest.filePath, {
+      headers: createSessionCleanupHeaders(requestContext, auth)
+    });
     return;
   }
 

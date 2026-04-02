@@ -26,7 +26,8 @@
     "commands/**/*.js",
     "server/**/*.js",
     "packaging/**/*.js",
-    "app/**/*.js"
+    "app/**/*.js",
+    "app/**/*.d.ts"
   ],
   "typeAcquisition": {
     "include": [

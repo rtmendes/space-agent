@@ -1,4 +1,5 @@
 @import "./google-icons.css";
+@import "./visual.css";
 
 [x-cloak] {
   display: none !important;

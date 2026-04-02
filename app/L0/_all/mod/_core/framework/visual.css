@@ -1,0 +1,411 @@
+body.space-theme-canvas {
+  --space-parallax-bg-x: 0px;
+  --space-parallax-bg-y: 0px;
+  --space-parallax-glow-x: 0px;
+  --space-parallax-glow-y: 0px;
+  --space-parallax-stars-deep-x: 0px;
+  --space-parallax-stars-deep-y: 0px;
+  --space-parallax-stars-far-x: 0px;
+  --space-parallax-stars-far-y: 0px;
+  --space-parallax-stars-mid-x: 0px;
+  --space-parallax-stars-mid-y: 0px;
+  --space-parallax-stars-near-x: 0px;
+  --space-parallax-stars-near-y: 0px;
+  --space-parallax-stars-close-x: 0px;
+  --space-parallax-stars-close-y: 0px;
+  min-height: 100vh;
+  margin: 0;
+  position: relative;
+  isolation: isolate;
+  background:
+    radial-gradient(
+      circle at calc(50% + var(--space-parallax-glow-x)) calc(46% + var(--space-parallax-glow-y)),
+      rgba(148, 188, 255, 0.14) 0%,
+      transparent 28%
+    ),
+    radial-gradient(
+      circle at calc(50% + var(--space-parallax-glow-x)) calc(56% + var(--space-parallax-glow-y)),
+      rgba(121, 237, 216, 0.08) 0%,
+      transparent 18%
+    ),
+    radial-gradient(
+      circle at calc(18% + var(--space-parallax-bg-x)) calc(18% + var(--space-parallax-bg-y)),
+      var(--color-backdrop-glow-primary) 0%,
+      transparent 28%
+    ),
+    radial-gradient(
+      circle at calc(82% + var(--space-parallax-bg-x)) calc(14% + var(--space-parallax-bg-y)),
+      var(--color-backdrop-glow-secondary) 0%,
+      transparent 23%
+    ),
+    radial-gradient(
+      circle at calc(50% + var(--space-parallax-bg-x)) calc(120% + var(--space-parallax-bg-y)),
+      var(--color-backdrop-glow-depth) 0%,
+      transparent 38%
+    ),
+    linear-gradient(
+      180deg,
+      var(--color-canvas-elevated) 0%,
+      var(--color-canvas) 52%,
+      var(--color-canvas-deep) 100%
+    );
+  color: var(--color-text);
+}
+
+body.space-theme-canvas::before,
+body.space-theme-canvas::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+}
+
+body.space-theme-canvas::before {
+  background:
+    radial-gradient(circle at 18px 24px, var(--color-backdrop-star-soft) 0 0.42px, transparent 1.04px)
+      calc(6px + var(--space-parallax-stars-deep-x))
+      calc(10px + var(--space-parallax-stars-deep-y)) / 164px 164px repeat,
+    radial-gradient(circle at 73px 51px, var(--color-backdrop-star-soft) 0 0.48px, transparent 1.1px)
+      calc(6px + var(--space-parallax-stars-deep-x))
+      calc(10px + var(--space-parallax-stars-deep-y)) / 164px 164px repeat,
+    radial-gradient(circle at 112px 131px, var(--color-backdrop-star-soft) 0 0.4px, transparent 1.02px)
+      calc(6px + var(--space-parallax-stars-deep-x))
+      calc(10px + var(--space-parallax-stars-deep-y)) / 164px 164px repeat,
+    radial-gradient(circle at 146px 92px, var(--color-backdrop-star-soft) 0 0.46px, transparent 1.08px)
+      calc(6px + var(--space-parallax-stars-deep-x))
+      calc(10px + var(--space-parallax-stars-deep-y)) / 164px 164px repeat,
+    radial-gradient(circle at 33px 18px, var(--color-backdrop-star-soft) 0 0.44px, transparent 1.06px)
+      calc(38px + var(--space-parallax-stars-deep-x))
+      calc(24px + var(--space-parallax-stars-deep-y)) / 212px 212px repeat,
+    radial-gradient(circle at 95px 74px, var(--color-backdrop-star-soft) 0 0.5px, transparent 1.12px)
+      calc(38px + var(--space-parallax-stars-deep-x))
+      calc(24px + var(--space-parallax-stars-deep-y)) / 212px 212px repeat,
+    radial-gradient(circle at 154px 46px, var(--color-backdrop-star-soft) 0 0.42px, transparent 1.04px)
+      calc(38px + var(--space-parallax-stars-deep-x))
+      calc(24px + var(--space-parallax-stars-deep-y)) / 212px 212px repeat,
+    radial-gradient(circle at 182px 166px, var(--color-backdrop-star-soft) 0 0.48px, transparent 1.1px)
+      calc(38px + var(--space-parallax-stars-deep-x))
+      calc(24px + var(--space-parallax-stars-deep-y)) / 212px 212px repeat,
+    radial-gradient(circle at 16px 20px, var(--color-backdrop-star-soft) 0 0.56px, transparent 1.18px)
+      calc(12px + var(--space-parallax-stars-far-x))
+      calc(16px + var(--space-parallax-stars-far-y)) / 138px 138px repeat,
+    radial-gradient(circle at 58px 66px, var(--color-backdrop-star-soft) 0 0.62px, transparent 1.26px)
+      calc(12px + var(--space-parallax-stars-far-x))
+      calc(16px + var(--space-parallax-stars-far-y)) / 138px 138px repeat,
+    radial-gradient(circle at 92px 33px, var(--color-backdrop-star-soft) 0 0.54px, transparent 1.16px)
+      calc(12px + var(--space-parallax-stars-far-x))
+      calc(16px + var(--space-parallax-stars-far-y)) / 138px 138px repeat,
+    radial-gradient(circle at 121px 109px, var(--color-backdrop-star-soft) 0 0.58px, transparent 1.2px)
+      calc(12px + var(--space-parallax-stars-far-x))
+      calc(16px + var(--space-parallax-stars-far-y)) / 138px 138px repeat,
+    radial-gradient(circle at 28px 44px, var(--color-backdrop-star-soft) 0 0.6px, transparent 1.24px)
+      calc(56px + var(--space-parallax-stars-far-x))
+      calc(34px + var(--space-parallax-stars-far-y)) / 186px 186px repeat,
+    radial-gradient(circle at 84px 15px, var(--color-backdrop-star-soft) 0 0.66px, transparent 1.3px)
+      calc(56px + var(--space-parallax-stars-far-x))
+      calc(34px + var(--space-parallax-stars-far-y)) / 186px 186px repeat,
+    radial-gradient(circle at 143px 71px, var(--color-backdrop-star-soft) 0 0.58px, transparent 1.2px)
+      calc(56px + var(--space-parallax-stars-far-x))
+      calc(34px + var(--space-parallax-stars-far-y)) / 186px 186px repeat,
+    radial-gradient(circle at 164px 148px, var(--color-backdrop-star-soft) 0 0.62px, transparent 1.26px)
+      calc(56px + var(--space-parallax-stars-far-x))
+      calc(34px + var(--space-parallax-stars-far-y)) / 186px 186px repeat,
+    radial-gradient(circle at 22px 18px, var(--color-backdrop-star-accent) 0 0.82px, transparent 1.48px)
+      calc(22px + var(--space-parallax-stars-mid-x))
+      calc(14px + var(--space-parallax-stars-mid-y)) / 156px 156px repeat,
+    radial-gradient(circle at 63px 89px, var(--color-backdrop-star-strong) 0 0.92px, transparent 1.64px)
+      calc(22px + var(--space-parallax-stars-mid-x))
+      calc(14px + var(--space-parallax-stars-mid-y)) / 156px 156px repeat,
+    radial-gradient(circle at 104px 42px, var(--color-backdrop-star-soft) 0 0.62px, transparent 1.22px)
+      calc(22px + var(--space-parallax-stars-mid-x))
+      calc(14px + var(--space-parallax-stars-mid-y)) / 156px 156px repeat,
+    radial-gradient(circle at 136px 121px, var(--color-backdrop-star-soft) 0 0.68px, transparent 1.28px)
+      calc(22px + var(--space-parallax-stars-mid-x))
+      calc(14px + var(--space-parallax-stars-mid-y)) / 156px 156px repeat,
+    radial-gradient(circle at 38px 54px, var(--color-backdrop-star-soft) 0 0.66px, transparent 1.28px)
+      calc(74px + var(--space-parallax-stars-mid-x))
+      calc(41px + var(--space-parallax-stars-mid-y)) / 208px 208px repeat,
+    radial-gradient(circle at 86px 24px, var(--color-backdrop-star-accent) 0 0.88px, transparent 1.56px)
+      calc(74px + var(--space-parallax-stars-mid-x))
+      calc(41px + var(--space-parallax-stars-mid-y)) / 208px 208px repeat,
+    radial-gradient(circle at 147px 98px, var(--color-backdrop-star-strong) 0 1px, transparent 1.74px)
+      calc(74px + var(--space-parallax-stars-mid-x))
+      calc(41px + var(--space-parallax-stars-mid-y)) / 208px 208px repeat,
+    radial-gradient(circle at 176px 162px, var(--color-backdrop-star-soft) 0 0.62px, transparent 1.24px)
+      calc(74px + var(--space-parallax-stars-mid-x))
+      calc(41px + var(--space-parallax-stars-mid-y)) / 208px 208px repeat,
+    radial-gradient(circle at 32px 26px, var(--color-backdrop-star-halo) 0 2.2px, transparent 5.4px)
+      calc(18px + var(--space-parallax-stars-near-x))
+      calc(29px + var(--space-parallax-stars-near-y)) / 196px 196px repeat,
+    radial-gradient(circle at 32px 26px, var(--color-backdrop-star-strong) 0 0.98px, transparent 1.74px)
+      calc(18px + var(--space-parallax-stars-near-x))
+      calc(29px + var(--space-parallax-stars-near-y)) / 196px 196px repeat,
+    radial-gradient(circle at 128px 61px, var(--color-backdrop-star-halo-accent) 0 2.5px, transparent 6.1px)
+      calc(18px + var(--space-parallax-stars-near-x))
+      calc(29px + var(--space-parallax-stars-near-y)) / 196px 196px repeat,
+    radial-gradient(circle at 128px 61px, var(--color-backdrop-star-accent) 0 1.08px, transparent 1.88px)
+      calc(18px + var(--space-parallax-stars-near-x))
+      calc(29px + var(--space-parallax-stars-near-y)) / 196px 196px repeat,
+    radial-gradient(circle at 74px 152px, var(--color-backdrop-star-halo) 0 2.1px, transparent 5.2px)
+      calc(18px + var(--space-parallax-stars-near-x))
+      calc(29px + var(--space-parallax-stars-near-y)) / 196px 196px repeat,
+    radial-gradient(circle at 74px 152px, var(--color-backdrop-star-strong) 0 0.94px, transparent 1.68px)
+      calc(18px + var(--space-parallax-stars-near-x))
+      calc(29px + var(--space-parallax-stars-near-y)) / 196px 196px repeat,
+    radial-gradient(circle at 164px 132px, var(--color-backdrop-star-strong) 0 0.86px, transparent 1.54px)
+      calc(18px + var(--space-parallax-stars-near-x))
+      calc(29px + var(--space-parallax-stars-near-y)) / 196px 196px repeat,
+    radial-gradient(circle at 46px 36px, var(--color-backdrop-star-halo) 0 3px, transparent 7.4px)
+      calc(28px + var(--space-parallax-stars-close-x))
+      calc(52px + var(--space-parallax-stars-close-y)) / 248px 248px repeat,
+    radial-gradient(circle at 46px 36px, var(--color-backdrop-star-strong) 0 1.16px, transparent 1.96px)
+      calc(28px + var(--space-parallax-stars-close-x))
+      calc(52px + var(--space-parallax-stars-close-y)) / 248px 248px repeat,
+    radial-gradient(circle at 171px 159px, var(--color-backdrop-star-halo-accent) 0 3.3px, transparent 7.8px)
+      calc(28px + var(--space-parallax-stars-close-x))
+      calc(52px + var(--space-parallax-stars-close-y)) / 248px 248px repeat,
+    radial-gradient(circle at 171px 159px, var(--color-backdrop-star-accent) 0 1.24px, transparent 2.04px)
+      calc(28px + var(--space-parallax-stars-close-x))
+      calc(52px + var(--space-parallax-stars-close-y)) / 248px 248px repeat,
+    radial-gradient(circle at 202px 72px, var(--color-backdrop-star-halo) 0 2.8px, transparent 6.8px)
+      calc(28px + var(--space-parallax-stars-close-x))
+      calc(52px + var(--space-parallax-stars-close-y)) / 248px 248px repeat,
+    radial-gradient(circle at 202px 72px, var(--color-backdrop-star-strong) 0 1.06px, transparent 1.84px)
+      calc(28px + var(--space-parallax-stars-close-x))
+      calc(52px + var(--space-parallax-stars-close-y)) / 248px 248px repeat;
+  inset: -14%;
+  opacity: 0.82;
+  transform: rotate(8deg) scale(1.08);
+  transform-origin: center;
+  will-change: background-position;
+}
+
+body.space-theme-canvas::after {
+  inset: auto;
+  top: 16%;
+  left: 10%;
+  width: 10rem;
+  height: 2px;
+  border-radius: 999px;
+  background: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0) 0%,
+    rgba(255, 255, 255, 0.03) 28%,
+    rgba(148, 188, 255, 0.18) 56%,
+    rgba(255, 255, 255, 0.96) 100%
+  );
+  transform-origin: right center;
+  filter:
+    drop-shadow(0 0 6px rgba(255, 255, 255, 0.5))
+    drop-shadow(0 0 18px rgba(148, 188, 255, 0.22));
+  opacity: 0;
+  animation: space-theme-shooting-star 6s linear infinite;
+}
+
+@supports selector(html:has(body.space-theme-canvas)) {
+  html:has(body.space-theme-canvas)::before,
+  html:has(body.space-theme-canvas)::after {
+    content: "";
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+  }
+
+  html:has(body.space-theme-canvas)::before {
+    background:
+      radial-gradient(circle at 21px 31px, var(--color-backdrop-star-soft) 0 0.42px, transparent 1.04px)
+        calc(24px + var(--space-parallax-stars-deep-x))
+        calc(18px + var(--space-parallax-stars-deep-y)) / 148px 148px repeat,
+      radial-gradient(circle at 96px 67px, var(--color-backdrop-star-soft) 0 0.48px, transparent 1.1px)
+        calc(24px + var(--space-parallax-stars-deep-x))
+        calc(18px + var(--space-parallax-stars-deep-y)) / 148px 148px repeat,
+      radial-gradient(circle at 134px 118px, var(--color-backdrop-star-soft) 0 0.44px, transparent 1.08px)
+        calc(24px + var(--space-parallax-stars-deep-x))
+        calc(18px + var(--space-parallax-stars-deep-y)) / 148px 148px repeat,
+      radial-gradient(circle at 42px 27px, var(--color-backdrop-star-soft) 0 0.58px, transparent 1.18px)
+        calc(61px + var(--space-parallax-stars-far-x))
+        calc(49px + var(--space-parallax-stars-far-y)) / 184px 184px repeat,
+      radial-gradient(circle at 117px 88px, var(--color-backdrop-star-soft) 0 0.62px, transparent 1.24px)
+        calc(61px + var(--space-parallax-stars-far-x))
+        calc(49px + var(--space-parallax-stars-far-y)) / 184px 184px repeat,
+      radial-gradient(circle at 156px 146px, var(--color-backdrop-star-soft) 0 0.56px, transparent 1.18px)
+        calc(61px + var(--space-parallax-stars-far-x))
+        calc(49px + var(--space-parallax-stars-far-y)) / 184px 184px repeat,
+      radial-gradient(circle at 26px 19px, var(--color-backdrop-star-accent) 0 0.72px, transparent 1.36px)
+        calc(17px + var(--space-parallax-stars-mid-x))
+        calc(52px + var(--space-parallax-stars-mid-y)) / 172px 172px repeat,
+      radial-gradient(circle at 88px 122px, var(--color-backdrop-star-strong) 0 0.82px, transparent 1.5px)
+        calc(17px + var(--space-parallax-stars-mid-x))
+        calc(52px + var(--space-parallax-stars-mid-y)) / 172px 172px repeat,
+      radial-gradient(circle at 141px 58px, var(--color-backdrop-star-soft) 0 0.58px, transparent 1.18px)
+        calc(17px + var(--space-parallax-stars-mid-x))
+        calc(52px + var(--space-parallax-stars-mid-y)) / 172px 172px repeat;
+    inset: -18%;
+    opacity: 0.22;
+    transform: rotate(-11deg) scale(1.11);
+    transform-origin: center;
+    will-change: background-position;
+  }
+
+  html:has(body.space-theme-canvas)::after {
+    background:
+      radial-gradient(circle at 34px 28px, var(--color-backdrop-star-halo) 0 2.1px, transparent 5.2px)
+        calc(43px + var(--space-parallax-stars-near-x))
+        calc(25px + var(--space-parallax-stars-near-y)) / 214px 214px repeat,
+      radial-gradient(circle at 34px 28px, var(--color-backdrop-star-strong) 0 0.92px, transparent 1.66px)
+        calc(43px + var(--space-parallax-stars-near-x))
+        calc(25px + var(--space-parallax-stars-near-y)) / 214px 214px repeat,
+      radial-gradient(circle at 137px 92px, var(--color-backdrop-star-halo-accent) 0 2.4px, transparent 5.8px)
+        calc(43px + var(--space-parallax-stars-near-x))
+        calc(25px + var(--space-parallax-stars-near-y)) / 214px 214px repeat,
+      radial-gradient(circle at 137px 92px, var(--color-backdrop-star-accent) 0 1.02px, transparent 1.8px)
+        calc(43px + var(--space-parallax-stars-near-x))
+        calc(25px + var(--space-parallax-stars-near-y)) / 214px 214px repeat,
+      radial-gradient(circle at 68px 162px, var(--color-backdrop-star-halo) 0 2.2px, transparent 5.4px)
+        calc(43px + var(--space-parallax-stars-near-x))
+        calc(25px + var(--space-parallax-stars-near-y)) / 214px 214px repeat,
+      radial-gradient(circle at 68px 162px, var(--color-backdrop-star-strong) 0 0.96px, transparent 1.7px)
+        calc(43px + var(--space-parallax-stars-near-x))
+        calc(25px + var(--space-parallax-stars-near-y)) / 214px 214px repeat,
+      radial-gradient(circle at 52px 46px, var(--color-backdrop-star-halo) 0 2.8px, transparent 6.8px)
+        calc(9px + var(--space-parallax-stars-close-x))
+        calc(71px + var(--space-parallax-stars-close-y)) / 256px 256px repeat,
+      radial-gradient(circle at 52px 46px, var(--color-backdrop-star-strong) 0 1.08px, transparent 1.84px)
+        calc(9px + var(--space-parallax-stars-close-x))
+        calc(71px + var(--space-parallax-stars-close-y)) / 256px 256px repeat,
+      radial-gradient(circle at 194px 131px, var(--color-backdrop-star-halo-accent) 0 3px, transparent 7.2px)
+        calc(9px + var(--space-parallax-stars-close-x))
+        calc(71px + var(--space-parallax-stars-close-y)) / 256px 256px repeat,
+      radial-gradient(circle at 194px 131px, var(--color-backdrop-star-accent) 0 1.14px, transparent 1.94px)
+        calc(9px + var(--space-parallax-stars-close-x))
+        calc(71px + var(--space-parallax-stars-close-y)) / 256px 256px repeat;
+    inset: -16%;
+    opacity: 0.18;
+    transform: rotate(17deg) scale(1.09);
+    transform-origin: center;
+    will-change: background-position;
+  }
+}
+
+@keyframes space-theme-shooting-star {
+  0%,
+  13% {
+    top: 16%;
+    left: 10%;
+    opacity: 0;
+    transform: translate3d(0, 0, 0) rotate(18deg) scaleX(0.16);
+  }
+
+  14% {
+    opacity: 0;
+    transform: translate3d(0, 0, 0) rotate(18deg) scaleX(0.22);
+  }
+
+  15.2% {
+    opacity: 0.95;
+    transform: translate3d(16vw, 9vh, 0) rotate(18deg) scaleX(1);
+  }
+
+  16.2% {
+    opacity: 0;
+    transform: translate3d(31vw, 18vh, 0) rotate(18deg) scaleX(0.44);
+  }
+
+  16.3%,
+  41% {
+    top: 16%;
+    left: 10%;
+    opacity: 0;
+    transform: translate3d(0, 0, 0) rotate(18deg) scaleX(0.16);
+  }
+
+  42% {
+    top: 19%;
+    left: 82%;
+    opacity: 0;
+    transform: translate3d(0, 0, 0) rotate(154deg) scaleX(0.18);
+  }
+
+  43.2% {
+    opacity: 0.92;
+    transform: translate3d(-14vw, 12vh, 0) rotate(154deg) scaleX(0.98);
+  }
+
+  44.1% {
+    opacity: 0;
+    transform: translate3d(-26vw, 23vh, 0) rotate(154deg) scaleX(0.42);
+  }
+
+  44.2%,
+  71% {
+    top: 19%;
+    left: 82%;
+    opacity: 0;
+    transform: translate3d(0, 0, 0) rotate(154deg) scaleX(0.18);
+  }
+
+  72% {
+    top: 63%;
+    left: 17%;
+    opacity: 0;
+    transform: translate3d(0, 0, 0) rotate(-14deg) scaleX(0.18);
+  }
+
+  73.1% {
+    opacity: 0.9;
+    transform: translate3d(18vw, -7vh, 0) rotate(-14deg) scaleX(1.04);
+  }
+
+  74% {
+    opacity: 0;
+    transform: translate3d(34vw, -13vh, 0) rotate(-14deg) scaleX(0.46);
+  }
+
+  74.1%,
+  100% {
+    top: 63%;
+    left: 17%;
+    opacity: 0;
+    transform: translate3d(0, 0, 0) rotate(-14deg) scaleX(0.18);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  body.space-theme-canvas {
+    --space-parallax-bg-x: 0px;
+    --space-parallax-bg-y: 0px;
+    --space-parallax-glow-x: 0px;
+    --space-parallax-glow-y: 0px;
+    --space-parallax-stars-deep-x: 0px;
+    --space-parallax-stars-deep-y: 0px;
+    --space-parallax-stars-far-x: 0px;
+    --space-parallax-stars-far-y: 0px;
+    --space-parallax-stars-mid-x: 0px;
+    --space-parallax-stars-mid-y: 0px;
+    --space-parallax-stars-near-x: 0px;
+    --space-parallax-stars-near-y: 0px;
+    --space-parallax-stars-close-x: 0px;
+    --space-parallax-stars-close-y: 0px;
+  }
+
+  body.space-theme-canvas::before {
+    transform: rotate(8deg) scale(1.08);
+  }
+
+  body.space-theme-canvas::after {
+    animation: none;
+    opacity: 0;
+  }
+}
+
+@supports selector(html:has(body.space-theme-canvas)) {
+  @media (prefers-reduced-motion: reduce) {
+    html:has(body.space-theme-canvas)::before {
+      transform: rotate(-11deg) scale(1.11);
+    }
+
+    html:has(body.space-theme-canvas)::after {
+      transform: rotate(17deg) scale(1.09);
+    }
+  }
+}

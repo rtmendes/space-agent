@@ -1,5 +1,8 @@
 import { normalizePathSegment } from "../lib/utils/app_files.js";
-import { listResolvedExtensionRequestPaths } from "../lib/customware/extension_overrides.js";
+import {
+  listResolvedExtensionRequestPathGroups,
+  listResolvedExtensionRequestPaths
+} from "../lib/customware/extension_overrides.js";
 
 function readPayload(context) {
   if (!context.body || typeof context.body !== "object" || Buffer.isBuffer(context.body)) {
@@ -9,8 +12,7 @@ function readPayload(context) {
   return context.body;
 }
 
-function readRequestedPatterns(context) {
-  const payload = readPayload(context);
+function createNormalizePattern() {
   const normalizePattern = (value) => {
     try {
       return normalizePathSegment(value);
@@ -19,16 +21,24 @@ function readRequestedPatterns(context) {
     }
   };
 
-  if (Array.isArray(payload.patterns)) {
-    return payload.patterns
+  return normalizePattern;
+}
+
+function readRequestedPatterns(input, normalizePattern = createNormalizePattern()) {
+  if (!input || typeof input !== "object" || Buffer.isBuffer(input)) {
+    return [];
+  }
+
+  if (Array.isArray(input.patterns)) {
+    return input.patterns
       .filter((value) => typeof value === "string")
       .map((value) => normalizePattern(value))
       .filter(Boolean);
   }
 
-  const extensionPoint = normalizePathSegment(payload.extension_point || "");
-  const filters = Array.isArray(payload.filters)
-    ? payload.filters.filter((value) => typeof value === "string" && value.trim())
+  const extensionPoint = normalizePattern(input.extension_point || "");
+  const filters = Array.isArray(input.filters)
+    ? input.filters.filter((value) => typeof value === "string" && value.trim())
     : [];
 
   if (!extensionPoint) {
@@ -40,15 +50,72 @@ function readRequestedPatterns(context) {
   ).filter(Boolean);
 }
 
+function readRequestedGroups(context) {
+  const payload = readPayload(context);
+  const normalizePattern = createNormalizePattern();
+
+  if (Array.isArray(payload.requests)) {
+    return payload.requests
+      .map((request, index) => {
+        const patterns = readRequestedPatterns(request, normalizePattern);
+        const key =
+          request && typeof request === "object" && !Array.isArray(request) &&
+          typeof request.key === "string" && request.key.trim()
+            ? request.key.trim()
+            : `request:${index}`;
+
+        if (patterns.length === 0) {
+          return null;
+        }
+
+        return {
+          key,
+          patterns
+        };
+      })
+      .filter(Boolean);
+  }
+
+  const patterns = readRequestedPatterns(payload, normalizePattern);
+  if (patterns.length === 0) {
+    return [];
+  }
+
+  return [
+    {
+      key: "default",
+      patterns
+    }
+  ];
+}
+
 export function post(context) {
-  const patterns = readRequestedPatterns(context);
+  const payload = readPayload(context);
+  const requests = readRequestedGroups(context);
+  const username = context.user && context.user.username;
+  const watchdog = context.watchdog;
+
+  if (Array.isArray(payload.requests)) {
+    return {
+      results: listResolvedExtensionRequestPathGroups({
+        requests,
+        username,
+        watchdog
+      })
+    };
+  }
+
+  const patterns = requests[0]?.patterns || [];
   const extensions = listResolvedExtensionRequestPaths({
     patterns,
-    username: context.user && context.user.username,
-    watchdog: context.watchdog
+    username,
+    watchdog
   });
 
   return {
+    results: {
+      default: extensions
+    },
     extensions
   };
 }

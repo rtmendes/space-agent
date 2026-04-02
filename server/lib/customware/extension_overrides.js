@@ -1,6 +1,6 @@
 import { globToRegExp, normalizePathSegment } from "../utils/app_files.js";
 import { parseProjectModuleExtensionFilePath } from "./layout.js";
-import { collectAccessibleModuleEntries, selectOverrideEntries } from "./overrides.js";
+import { collectAccessibleModuleEntries, compareRankedEntries } from "./overrides.js";
 
 function normalizeExtensionPattern(value) {
   try {
@@ -24,30 +24,83 @@ function matchesExtensionPattern(entry, compiledPatterns) {
   return compiledPatterns.some(({ matcher }) => matcher.test(entry.extensionPath));
 }
 
-function listResolvedExtensionRequestPaths(options = {}) {
-  const { patterns = [], username, watchdog } = options;
+function listResolvedExtensionRequestPathGroups(options = {}) {
+  const { requests = [], username, watchdog } = options;
 
   if (!watchdog || typeof watchdog.getPaths !== "function") {
-    return [];
+    return Object.create(null);
   }
 
-  const compiledPatterns = compileExtensionPatterns(patterns);
+  const normalizedRequests = requests
+    .map((request) => {
+      const key = String(request && request.key || "").trim();
+      const compiledPatterns = compileExtensionPatterns(
+        Array.isArray(request && request.patterns) ? request.patterns : []
+      );
 
-  if (compiledPatterns.length === 0) {
-    return [];
+      if (!key || compiledPatterns.length === 0) {
+        return null;
+      }
+
+      return {
+        compiledPatterns,
+        key
+      };
+    })
+    .filter(Boolean);
+
+  if (normalizedRequests.length === 0) {
+    return Object.create(null);
   }
 
   const accessibleEntries = collectAccessibleModuleEntries(watchdog.getPaths(), {
     groupIndex: typeof watchdog.getIndex === "function" ? watchdog.getIndex("group_index") : null,
     parseProjectPath: parseProjectModuleExtensionFilePath,
     username
-  }).filter((entry) => matchesExtensionPattern(entry, compiledPatterns));
+  });
 
-  return selectOverrideEntries(accessibleEntries, {
-    getOverrideKey(entry) {
-      return entry.requestPath;
+  const selectedEntriesByKey = new Map(
+    normalizedRequests.map((request) => [request.key, new Map()])
+  );
+
+  for (const entry of accessibleEntries) {
+    for (const request of normalizedRequests) {
+      if (!matchesExtensionPattern(entry, request.compiledPatterns)) {
+        continue;
+      }
+
+      selectedEntriesByKey.get(request.key).set(entry.requestPath, entry);
     }
-  }).map((entry) => entry.requestPath);
+  }
+
+  const results = Object.create(null);
+
+  for (const request of normalizedRequests) {
+    results[request.key] = [...selectedEntriesByKey.get(request.key).values()]
+      .sort(compareRankedEntries)
+      .map((entry) => entry.requestPath);
+  }
+
+  return results;
 }
 
-export { listResolvedExtensionRequestPaths };
+function listResolvedExtensionRequestPaths(options = {}) {
+  const { patterns = [], username, watchdog } = options;
+  const results = listResolvedExtensionRequestPathGroups({
+    requests: [
+      {
+        key: "default",
+        patterns
+      }
+    ],
+    username,
+    watchdog
+  });
+
+  return results.default || [];
+}
+
+export {
+  listResolvedExtensionRequestPathGroups,
+  listResolvedExtensionRequestPaths
+};

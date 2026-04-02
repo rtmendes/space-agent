@@ -10,7 +10,7 @@ Documentation is top priority for this area. After any change under `server/` or
 
 ## Responsibilities
 
-- serve the root HTML entry shells from `server/pages/`
+- serve the root HTML entry shells and public page-shell assets from `server/pages/`
 - resolve browser-delivered modules from the layered `app/L0`, `app/L1`, and `app/L2` customware model
 - expose server API modules from `server/api/`
 - provide the outbound fetch proxy at `/api/proxy`
@@ -25,7 +25,7 @@ Current server layout:
 - `server/config.js`: default host, port, and filesystem roots
 - `server/dev_server.js`: source-checkout dev supervisor used by `npm run dev`
 - `server/package.json`: ES module package boundary for the backend
-- `server/pages/`: root HTML shell files served at `/`, `/login`, and `/admin`
+- `server/pages/`: root HTML shell files served at `/`, `/login`, and `/admin`, plus public page-shell assets under `server/pages/res/` served from `/pages/res/...`
 - `server/api/`: endpoint modules loaded by endpoint name, with multiword routes named object-first such as `login_check`, `guest_create`, and `extensions_load`
 - `server/router/router.js`: top-level request routing order and API dispatch
 - `server/router/pages_handler.js`: page-route handler for page auth gating, redirects, and page actions such as `/logout`
@@ -50,11 +50,13 @@ Current server layout:
 - request routing order is: API preflight handling, `/api/proxy`, `/api/<endpoint>`, `/mod/...`, then pages as the last fallback
 - non-`/mod` and non-`/api` requests stay limited to root HTML shells and page actions owned by the pages layer
 - the router-side pages handler owns page auth gating and page-route actions: unauthenticated requests for protected pages redirect to `/login`, authenticated requests to `/login` redirect to `/`, and `/logout` clears the current session then redirects to `/login`
+- public page-shell assets under `/pages/res/...` are served directly from `server/pages/res/` without authentication so pre-auth shells such as `/login` can load shell-local artwork
 - `/mod/...` requests resolve through the layered customware model, using the watched `path_index` plus the group index to select the best accessible match from `L0`, `L1`, and `L2`
 - request identity is now derived from the server-issued `space_session` cookie via the router-side `request_context` helper and the watched `user_index`
 - `app/L2/<username>/user.yaml` stores user metadata such as `full_name`; auth state lives under `app/L2/<username>/meta/`, where `password.json` stores the password verifier and `logins.json` stores active session codes
 - only explicit public endpoints such as login status, login challenge, login completion, and health may run without authentication; other APIs and `/mod/...` fetches must require a valid session
 - root page shells are pretty-routed as `/`, `/login`, and `/admin`; legacy `.html` requests redirect to those routes
+- page-shell assets keep their explicit `/pages/res/...` paths and are not pretty-routed
 - app filesystem APIs use app-rooted paths like `L2/alice/user.yaml` or `/app/L2/alice/user.yaml`
 - read permissions are: own `L2/<username>/`, plus `L0/<group>/` and `L1/<group>/` for groups the user belongs to
 - write permissions are: own `L2/<username>/`; managed `L1/<group>/`; `_admin` members may write any `L1/` and `L2/`; nobody writes `L0/`
@@ -124,11 +126,16 @@ Current status notes:
 - `db` is a placeholder route family for future persistence work
 - `guest_create`, `login`, `login_challenge`, and `login_check` are the current public auth-related endpoints
 - `login` enforces a 500 ms minimum response time on both success and failure so authentication outcome is not reflected as an immediate timing difference
-- `guest_create` creates a temporary L2 guest user with generated credentials, refreshes the watchdog indexes, and leaves the actual login step to the normal frontend login flow
+- `guest_create` creates a temporary L2 guest user with generated credentials, refreshes the watchdog indexes, and leaves the actual login step to the normal frontend login flow, which now reuses the primary login fields to display those credentials before continuing
 - `file_read`, `file_write`, and `file_list` are the current authenticated app-filesystem APIs; they operate on app-rooted paths through the shared `file_access` library, use watchdog-backed indexes for path resolution and permission decisions, and should remain the reusable contract for agent-oriented file access
 - `file_paths` is the authenticated hierarchy-pattern lookup API; it matches owner-relative glob patterns such as `skills/SKILL.md` across the user's readable `L0`, `L1`, and `L2` roots and returns matched full paths relative to `/app`, while preserving hierarchy order and allowing directory patterns that end with `/`
 - the current page shells live in `server/pages/`, while all page-serving logic stays in `server/router/pages_handler.js`
+- public shell artwork or other shell-local binaries should live under `server/pages/res/` and load through `/pages/res/...` rather than being inlined into large data URIs in HTML; the login intro mascot in the two-column hero is the current reference example
+- page shells under `server/pages/` should stay minimal and expose stable extension anchors when the frontend runtime should compose content dynamically; do not hardwire module components there when the `mod/**/ext/**` loader can own the composition instead
+- public page shells such as `/login` should not depend on authenticated `/mod/...` assets; when they need design tokens or the shared space backdrop before login, mirror the semantic names from `app/L0/_all/mod/_core/framework/colors.css` and the same layered rotated backdrop recipe from `app/L0/_all/mod/_core/framework/visual.css` locally and keep them aligned with `/app/AGENTS.md`
+- touch interaction on public shell backdrops should not emulate hover-reset behavior; when touch parallax is used, it should settle on tap and stay there until the next tap or an explicit reset
 - `extensions_load` resolves extension files from layered `mod/**/ext/**` paths using the current user's group inheritance and exact module-path overrides
+- `extensions_load` also accepts grouped request batches so the frontend can debounce uncached extension discovery to one request per frame while the server resolves all requested pattern groups in one inheritance pass
 
 ## Server Implementation Guide
 

@@ -61,7 +61,7 @@ Top-level structure:
 - `space`: root CLI router that discovers command modules dynamically
 - `commands/`: CLI command modules such as `serve`, `help`, `version`, and `update`
 - `app/`: browser runtime, layered customware model, shared frontend modules, and browser test surfaces
-- `server/`: thin local infrastructure runtime, with root page shells under `server/pages/`, request routing under `server/router/`, API hosting, fetch proxying, watched-file indexes, auth/session infrastructure, and Git support code for update flows
+- `server/`: thin local infrastructure runtime, with root page shells and public shell assets under `server/pages/`, request routing under `server/router/`, API hosting, fetch proxying, watched-file indexes, auth/session infrastructure, and Git support code for update flows
 - `packaging/`: optional Electron host and packaging scripts; keep native hosts thin
 
 Project concepts:
@@ -69,16 +69,19 @@ Project concepts:
 - browser first, server last
 - modules are the browser delivery unit for code, markup, styles, and assets
 - browser modules are namespaced as `mod/<author>/<repo>/...`
+- frontend extensibility is a core runtime primitive, not an add-on; framework bootstrap installs `space.extend` first, and the browser runtime grows by loading modules that expose extension points which are then extended by further modules
+- frontend visual guidance, semantic color palette, and shared backdrop primitives are owned by `/app/AGENTS.md` under `## Visual Guidance`; agents making UI changes should read that section and use `app/L0/_all/mod/_core/framework/colors.css` plus `app/L0/_all/mod/_core/framework/visual.css`
 - the layered browser model is `app/L0` firmware, `app/L1` group customware, and `app/L2` user customware
 - `app/L1` and `app/L2` are transient runtime state and are gitignored; do not treat them as durable repo-owned sample content
 - `app/L2/<username>/user.yaml` stores user metadata such as `full_name`; auth state lives under `app/L2/<username>/meta/`, where `password.json` stores the password verifier and `logins.json` stores active session codes
 - the server resolves `/mod/...` requests through that layered inheritance model using watchdog-backed indexes
 - the browser now authenticates through the server at `/login`, uses a server-issued session cookie for both API and file access, and clears that session through `/logout`
 - the login screen can currently spawn temporary guest users through a public server endpoint; those guests are ordinary `app/L2/<username>/` users with generated credentials
+- framework composition is rooted at `/mod/_core/framework/initFw.js`, which initializes the global `space` runtime and imports the extension system before other framework modules so later modules can extend the runtime tree deterministically
 - app file APIs now operate on app-rooted paths such as `L2/alice/user.yaml` or `/app/L2/alice/user.yaml`, not on `/mod/...` cascade paths
 - read permissions are: a user can read their own `L2/<username>/`, and can read `L0/<group>/` and `L1/<group>/` for groups they belong to
 - write permissions are: a user can write their own `L2/<username>/`; a user can write `L1/<group>/` only when they manage that group directly or through a managing group include chain; members of `_admin` can write any `L1/` and `L2/` path; nobody writes `L0/`
-- non-`/api` and non-`/mod` browser entry routes are served from `server/pages/`; `/login` is public and the protected page shells live behind the router-side session gate
+- non-`/api` and non-`/mod` browser entry routes are served from `server/pages/`; public shell assets under `/pages/res/...` are served from `server/pages/res/`; `/login` is public and the protected page shells live behind the router-side session gate
 - the server-side backend under `server/` is expected to use ES module syntax throughout
 - detailed browser-runtime rules live in `/app/AGENTS.md`
 - detailed server-runtime rules live in `/server/AGENTS.md`
