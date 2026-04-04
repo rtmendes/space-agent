@@ -1,8 +1,8 @@
 import path from "node:path";
 
 import { resolveRequestMaxLayer } from "../lib/customware/layer_limit.js";
+import { resolveProjectPathFromAbsolute } from "../lib/customware/layout.js";
 import { resolveInheritedModuleProjectPath } from "../lib/customware/module_inheritance.js";
-import { toProjectPath } from "../lib/file_watch/watchdog.js";
 import { sendFile, sendNotFound } from "./responses.js";
 
 function resolveModuleFilePath(projectRoot, requestPath, username, watchdog, options = {}) {
@@ -21,6 +21,7 @@ function resolveModuleFilePath(projectRoot, requestPath, username, watchdog, opt
     maxLayer,
     projectRoot,
     requestPath: normalizedPath,
+    runtimeParams: options.runtimeParams,
     username,
     watchdog
   });
@@ -29,10 +30,11 @@ function resolveModuleFilePath(projectRoot, requestPath, username, watchdog, opt
 }
 
 function handleModuleRequest(res, requestPath, options = {}) {
-  const { headers, projectRoot, requestUrl, username, watchdog } = options;
+  const { headers, projectRoot, requestUrl, runtimeParams, username, watchdog } = options;
   const filePath = resolveModuleFilePath(projectRoot, requestPath, username, watchdog, {
     headers,
-    requestUrl
+    requestUrl,
+    runtimeParams
   });
 
   if (!filePath) {
@@ -40,7 +42,9 @@ function handleModuleRequest(res, requestPath, options = {}) {
     return;
   }
 
-  const projectPath = projectRoot ? toProjectPath(projectRoot, filePath) : "";
+  const projectPath = projectRoot
+    ? resolveProjectPathFromAbsolute(projectRoot, filePath, { runtimeParams })
+    : "";
   const knownMissing = Boolean(watchdog && projectPath && watchdog.covers(projectPath) && !watchdog.hasPath(projectPath));
 
   sendFile(res, filePath, {

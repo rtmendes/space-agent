@@ -2,9 +2,18 @@
 
 const fs = require("node:fs");
 const path = require("node:path");
-const { PROJECT_ROOT, loadPackagingDependency } = require("./tooling");
+const {
+  PROJECT_ROOT,
+  loadPackagingDependency,
+  resolvePackagingDependency
+} = require("./tooling");
 const PACKAGE_JSON_PATH = path.join(PROJECT_ROOT, "package.json");
 const { build, Platform, Arch, DIR_TARGET } = loadPackagingDependency("electron-builder");
+const ELECTRON_PACKAGE = loadPackagingDependency("electron/package.json");
+const ELECTRON_DIST_PATH = path.join(
+  path.dirname(resolvePackagingDependency("electron/package.json")),
+  "dist"
+);
 
 const PLATFORM_SPECS = {
   macos: {
@@ -219,6 +228,9 @@ function createBuildConfig(platformSpec) {
     ...(buildConfig.directories || {}),
     output: path.join("dist", "desktop", platformSpec.key)
   };
+  buildConfig.asar = false;
+  buildConfig.electronVersion = ELECTRON_PACKAGE.version;
+  buildConfig.electronDist = ELECTRON_DIST_PATH;
 
   return {
     buildConfig,

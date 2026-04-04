@@ -28,8 +28,21 @@ function loadPackagingDependency(packageName) {
   }
 }
 
+function resolvePackagingDependency(packageName) {
+  try {
+    return packagingRequire.resolve(packageName);
+  } catch (error) {
+    if (isMissingPackagingDependency(error)) {
+      throw createMissingPackagingDependencyError(packageName);
+    }
+
+    throw error;
+  }
+}
+
 module.exports = {
   PACKAGING_ROOT,
   PROJECT_ROOT,
-  loadPackagingDependency
+  loadPackagingDependency,
+  resolvePackagingDependency
 };

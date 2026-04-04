@@ -57,6 +57,8 @@ const MODULE_PATH_PATTERN = /\/mod\/([^/]+)\/([^/]+)\/(.+)$/u;
 const JS_CACHE_AREA = "frontend_extensions_js(extensions)";
 const HTML_CACHE_AREA = "frontend_extensions_html(extensions)";
 const EXTENSION_BATCH_FALLBACK_MS = 32;
+const HTML_EXTENSION_SCOPE = "html";
+const JS_EXTENSION_SCOPE = "js";
 
 export const API_EXTENSION_EXCLUDED_ENDPOINTS = new Set([
   "/api/extensions_load",
@@ -101,6 +103,24 @@ function joinExtensionSegments(...segments) {
     .map((segment) => normalizeExtensionSegment(segment))
     .filter(Boolean)
     .join("/");
+}
+
+function normalizeExtensionPointForScope(extensionPoint, scope) {
+  const normalizedExtensionPoint = normalizeExtensionSegment(extensionPoint);
+
+  if (!normalizedExtensionPoint) {
+    return "";
+  }
+
+  if (normalizedExtensionPoint === scope) {
+    return "";
+  }
+
+  if (normalizedExtensionPoint.startsWith(`${scope}/`)) {
+    return normalizedExtensionPoint.slice(scope.length + 1);
+  }
+
+  return normalizedExtensionPoint;
 }
 
 function parseModulePath(moduleRef) {
@@ -292,8 +312,19 @@ export function extend(moduleRef, extensionPointNameOrOriginal, maybeOriginal) {
 
 ensureSpaceRuntime().extend = extend;
 
-function createExtensionPatterns(extensionPoint, filters) {
-  return filters.map((filter) => `${extensionPoint}/${filter}`);
+function createExtensionPatterns(extensionPoint, filters, scope) {
+  const normalizedExtensionPoint = normalizeExtensionPointForScope(
+    extensionPoint,
+    scope
+  );
+
+  if (!normalizedExtensionPoint) {
+    return [];
+  }
+
+  return filters
+    .map((filter) => joinExtensionSegments(scope, normalizedExtensionPoint, filter))
+    .filter(Boolean);
 }
 
 function createExtensionLookupKey(patterns) {
@@ -309,10 +340,11 @@ function createExtensionLookupKey(patterns) {
   );
 }
 
-function createExtensionCacheKey(extensionPoint) {
+function createExtensionCacheKey(extensionPoint, scope) {
   return JSON.stringify({
-    extensionPoint,
-    maxLayer: getConfiguredModuleMaxLayer()
+    extensionPoint: normalizeExtensionPointForScope(extensionPoint, scope),
+    maxLayer: getConfiguredModuleMaxLayer(),
+    scope
   });
 }
 
@@ -410,8 +442,8 @@ function scheduleExtensionLookupFlush() {
   queueMicrotask(runFlush);
 }
 
-function loadExtensionPaths(extensionPoint, filters) {
-  const patterns = createExtensionPatterns(extensionPoint, filters);
+function loadExtensionPaths(extensionPoint, filters, scope) {
+  const patterns = createExtensionPatterns(extensionPoint, filters, scope);
   const lookupKey = createExtensionLookupKey(patterns);
 
   if (!lookupKey || patterns.length === 0) {
@@ -445,7 +477,7 @@ function loadExtensionPaths(extensionPoint, filters) {
  * @returns {Promise<void>}
  */
 export async function callJsExtensions(extensionPoint, ...data){
-  const cacheKey = createExtensionCacheKey(extensionPoint);
+  const cacheKey = createExtensionCacheKey(extensionPoint, JS_EXTENSION_SCOPE);
   const cachedExtensions = readCachedValue(JS_CACHE_AREA, cacheKey);
   const extensions =
     cachedExtensions !== undefined
@@ -468,11 +500,15 @@ export async function callJsExtensions(extensionPoint, ...data){
  */
 export async function loadJsExtensions(extensionPoint) {
   try {
-    const cacheKey = createExtensionCacheKey(extensionPoint);
+    const cacheKey = createExtensionCacheKey(extensionPoint, JS_EXTENSION_SCOPE);
     const cached = readCachedValue(JS_CACHE_AREA, cacheKey);
     if (cached !== undefined) return cached;
 
-    const paths = await loadExtensionPaths(extensionPoint, ["*.js", "*.mjs"]);
+    const paths = await loadExtensionPaths(
+      extensionPoint,
+      ["*.js", "*.mjs"],
+      JS_EXTENSION_SCOPE
+    );
     /** @type {JsExtensionImport[]} */
     const imports = await Promise.all(
       paths.map(async (path) => ({
@@ -569,14 +605,21 @@ export async function reloadHtmlExtensions(roots = [document.documentElement]) {
  */
 export async function importHtmlExtensions(extensionPoint, targetElement) {
   try {
-    const cacheKey = createExtensionCacheKey(extensionPoint);
+    const cacheKey = createExtensionCacheKey(
+      extensionPoint,
+      HTML_EXTENSION_SCOPE
+    );
     const cachedHtml = readCachedValue(HTML_CACHE_AREA, cacheKey);
     if (cachedHtml !== undefined) {
       targetElement.innerHTML = cachedHtml;
       return;
     }
 
-    const paths = await loadExtensionPaths(extensionPoint, ["*.html", "*.htm", "*.xhtml"]);
+    const paths = await loadExtensionPaths(
+      extensionPoint,
+      ["*.html", "*.htm", "*.xhtml"],
+      HTML_EXTENSION_SCOPE
+    );
     let combinedHTML = "";
     for (const extension of paths) {
       const path = normalizePath(extension);

@@ -1,3 +1,5 @@
+import * as skills from "/mod/_core/onscreen_agent/skills.js";
+
 export const DEFAULT_ONSCREEN_AGENT_SYSTEM_PROMPT_PATH = "/mod/_core/onscreen_agent/system-prompt.md";
 export const ONSCREEN_AGENT_HISTORY_COMPACT_MODE = Object.freeze({
   AUTOMATIC: "automatic",
@@ -130,6 +132,7 @@ export async function buildRuntimeOnscreenAgentSystemPrompt(systemPrompt = "", o
     options.defaultSystemPrompt || (await fetchDefaultOnscreenAgentSystemPrompt())
   );
   const customPrompt = formatCustomUserInstructions(systemPrompt);
+  const skillsSection = await skills.buildOnscreenSkillsPromptSection();
 
-  return [basePrompt, customPrompt].filter(Boolean).join("\n\n");
+  return [basePrompt, customPrompt, skillsSection].filter(Boolean).join("\n\n");
 }

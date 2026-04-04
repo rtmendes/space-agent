@@ -1,3 +1,5 @@
+import { ONSCREEN_SKILL_LOAD_HOOK_KEY } from "./skills.js";
+
 export const EXECUTION_SEPARATOR = "_____javascript";
 
 const EXECUTION_CONTEXT_KEY = "__spaceOnscreenAgentExecutionContext";
@@ -8,6 +10,37 @@ const WINDOW_ALIAS_KEYS = new Set(["page", "window", "globalThis", "self"]);
 const MAX_STRING_LENGTH = 220;
 const MAX_COLLECTION_ENTRIES = 8;
 const MAX_FORMAT_DEPTH = 2;
+
+function isLoadedOnscreenSkill(value) {
+  return Boolean(value?.__spaceSkill) && typeof value?.content === "string" && typeof value?.path === "string";
+}
+
+function collectLoadedSkills(result) {
+  const loadedSkills = [];
+  const seen = new Set();
+
+  const addSkill = (skill) => {
+    if (!isLoadedOnscreenSkill(skill)) {
+      return;
+    }
+
+    const identity = `${String(skill.filePath || "")}|${skill.path}`;
+
+    if (seen.has(identity)) {
+      return;
+    }
+
+    seen.add(identity);
+    loadedSkills.push(skill);
+  };
+
+  if (Array.isArray(result?.loadedSkills)) {
+    result.loadedSkills.forEach((skill) => addSkill(skill));
+  }
+
+  addSkill(result?.result);
+  return loadedSkills;
+}
 
 function findLineStart(content, index) {
   let lineStart = index;
@@ -300,6 +333,10 @@ function formatExecutionValue(value, options) {
   }
 
   if (typeof value === "object") {
+    if (isLoadedOnscreenSkill(value)) {
+      return `[Loaded skill ${value.path}]`;
+    }
+
     if (seen.has(value)) {
       return "[Circular]";
     }
@@ -521,17 +558,26 @@ function formatExecutionResultLines(result) {
   const status = typeof result?.status === "string" && result.status.trim() ? result.status.trim() : "done";
   const lines = [`execution ${status}`];
   const prints = Array.isArray(result?.logs) ? result.logs : [];
+  const loadedSkills = collectLoadedSkills(result);
 
   prints.forEach((entry) => {
     const level = typeof entry?.level === "string" && entry.level.trim() ? entry.level.trim() : "log";
     lines.push(`${level}: ${flattenExecutionMessageValue(entry?.text ?? "")}`);
   });
 
-  if (result?.result !== undefined) {
+  loadedSkills.forEach((skill, index) => {
+    if (index > 0) {
+      lines.push("");
+    }
+
+    lines.push(skill.content);
+  });
+
+  if (result?.result !== undefined && !isLoadedOnscreenSkill(result?.result)) {
     lines.push(`result: ${flattenExecutionMessageValue(result.resultText)}`);
   }
 
-  if (!result?.error?.text && result?.result === undefined && !prints.length) {
+  if (!result?.error?.text && result?.result === undefined && !prints.length && !loadedSkills.length) {
     lines.push("warning: JavaScript finished but returned no result.");
     lines.push("warning: Use top-level return to send the final value back.");
   }
@@ -590,9 +636,11 @@ export function createExecutionContext(options = {}) {
     sharedState,
     async execute(code) {
       const logs = [];
+      const loadedSkills = [];
       const runId = executionContext.runCount + 1;
       const scope = createExecutionScope(targetWindow, sharedState);
       const restoreConsole = patchConsole(targetWindow, logs);
+      const previousSkillLoadHook = targetWindow[ONSCREEN_SKILL_LOAD_HOOK_KEY];
       const normalizedCode = normalizeExecutionSource(code);
       const runnableCode = `${normalizedCode}\n//# sourceURL=${buildSourceUrl(runId)}`;
       const compileError = tryCreateAsyncRunner(runnableCode);
@@ -601,6 +649,20 @@ export function createExecutionContext(options = {}) {
       let error = compileError || null;
 
       executionContext.runCount = runId;
+
+      try {
+        targetWindow[ONSCREEN_SKILL_LOAD_HOOK_KEY] = (skill) => {
+          if (isLoadedOnscreenSkill(skill)) {
+            loadedSkills.push(skill);
+          }
+
+          if (typeof previousSkillLoadHook === "function") {
+            previousSkillLoadHook(skill);
+          }
+        };
+      } catch (hookError) {
+        // Ignore read-only globals. The returned result path still works when available.
+      }
 
       if (!error) {
         try {
@@ -616,8 +678,19 @@ export function createExecutionContext(options = {}) {
 
       restoreConsole();
 
+      try {
+        if (previousSkillLoadHook === undefined) {
+          delete targetWindow[ONSCREEN_SKILL_LOAD_HOOK_KEY];
+        } else {
+          targetWindow[ONSCREEN_SKILL_LOAD_HOOK_KEY] = previousSkillLoadHook;
+        }
+      } catch (hookError) {
+        // Ignore read-only globals.
+      }
+
       return {
         error: error ? createExecutionError(error) : null,
+        loadedSkills,
         logs,
         result,
         resultText:

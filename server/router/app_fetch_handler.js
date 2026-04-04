@@ -1,15 +1,12 @@
 import path from "node:path";
 
 import { createAppAccessController } from "../lib/customware/file_access.js";
-import { normalizeAppProjectPath } from "../lib/customware/layout.js";
+import { getRuntimeGroupIndex } from "../lib/customware/group_runtime.js";
+import {
+  normalizeAppProjectPath,
+  resolveProjectAbsolutePath
+} from "../lib/customware/layout.js";
 import { sendFile, sendJson, sendNotFound } from "./responses.js";
-
-function getGroupIndex(watchdog) {
-  if (!watchdog || typeof watchdog.getIndex !== "function") {
-    return null;
-  }
-  return watchdog.getIndex("group_index");
-}
 
 function resolveAppFetchProjectPath(requestPath, username) {
   const normalizedPath = path.posix.normalize(requestPath || "/");
@@ -29,7 +26,7 @@ function resolveAppFetchProjectPath(requestPath, username) {
 }
 
 function handleAppFetchRequest(res, requestPath, options = {}) {
-  const { projectRoot, username, watchdog } = options;
+  const { projectRoot, runtimeParams, username, watchdog } = options;
   const projectPath = resolveAppFetchProjectPath(requestPath, username);
 
   if (!projectPath) {
@@ -38,7 +35,8 @@ function handleAppFetchRequest(res, requestPath, options = {}) {
   }
 
   const accessController = createAppAccessController({
-    groupIndex: getGroupIndex(watchdog),
+    groupIndex: getRuntimeGroupIndex(watchdog, runtimeParams),
+    runtimeParams,
     username
   });
 
@@ -47,7 +45,7 @@ function handleAppFetchRequest(res, requestPath, options = {}) {
     return;
   }
 
-  const absolutePath = path.join(projectRoot, projectPath.slice(1));
+  const absolutePath = resolveProjectAbsolutePath(projectRoot, projectPath, runtimeParams);
   sendFile(res, absolutePath);
 }
 

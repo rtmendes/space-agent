@@ -551,10 +551,12 @@
           </p>
           <button id="submit-button" class="secondary-button" type="submit">Enter your Space</button>
         </form>
-        <div id="login-separator" class="login-separator">or</div>
-        <button id="guest-create-button" class="primary-button" type="button">
-          Use Guest Account
-        </button>
+        <div id="guest-option-group">
+          <div class="login-separator">or</div>
+          <button id="guest-create-button" class="primary-button" type="button">
+            Use Guest Account
+          </button>
+        </div>
         <div class="login-separator">or</div>
         <a
           class="secondary-link"
@@ -580,6 +582,7 @@
         rotationDistance: 1.5,
         rotationSpeed: 1.5
       });
+      const FRONTEND_CONFIG_META_NAME = "space-config";
       // Change this one float to shift the astronaut's starting pose, drift direction, and pace.
       const ASTRONAUT_FLOAT_VARIANT = 0.5;
       const ASTRONAUT_FLOAT_PARAMS = Object.freeze({
@@ -625,7 +628,7 @@
       const usernameInput = document.getElementById("username");
       const passwordInput = document.getElementById("password");
       const fieldNote = document.getElementById("field-note");
-      const loginSeparator = document.getElementById("login-separator");
+      const guestOptionGroup = document.getElementById("guest-option-group");
       const submitButton = document.getElementById("submit-button");
       const guestCreateButton = document.getElementById("guest-create-button");
       const introTitle = document.getElementById("intro-title");
@@ -634,6 +637,7 @@
       const spaceThemeCanvas = document.body;
       const statusEl = document.getElementById("status");
       const prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
+      const allowGuestUsers = readFrontendConfigValue("ALLOW_GUEST_USERS", true);
       let guestCredentials = null;
       let introFloatFrame = 0;
       let introFloatStartTime = 0;
@@ -648,9 +652,33 @@
         statusEl.className = tone ? `status ${tone}` : "status";
       }
 
+      function readFrontendConfigValue(name, fallback) {
+        const metaTag = document.querySelector(
+          `meta[name="${FRONTEND_CONFIG_META_NAME}"][data-space-param="${String(name || "").trim().toUpperCase()}"]`
+        );
+
+        if (!metaTag) {
+          return fallback;
+        }
+
+        const type = String(metaTag.dataset.spaceType || "text").trim().toLowerCase();
+        const content = String(metaTag.content || "");
+
+        if (type === "boolean") {
+          return content === "true";
+        }
+
+        if (type === "number") {
+          const numericValue = Number(content);
+          return Number.isFinite(numericValue) ? numericValue : fallback;
+        }
+
+        return content;
+      }
+
       function syncButtonState(isBusy = false) {
         submitButton.disabled = isBusy;
-        guestCreateButton.disabled = isBusy;
+        guestCreateButton.disabled = isBusy || !allowGuestUsers;
       }
 
       function setIntroTitlePose(x, y, rotation) {
@@ -806,8 +834,7 @@
         submitButton.classList.toggle("primary-button", isGuestReady);
         submitButton.classList.toggle("secondary-button", !isGuestReady);
         fieldNote.hidden = !isGuestReady;
-        loginSeparator.hidden = isGuestReady;
-        guestCreateButton.hidden = isGuestReady;
+        guestOptionGroup.hidden = isGuestReady || !allowGuestUsers;
         syncButtonState(false);
       }
 
@@ -976,7 +1003,9 @@
       }
 
       form.addEventListener("submit", handleLogin);
-      guestCreateButton.addEventListener("click", handleGuestCreate);
+      if (allowGuestUsers) {
+        guestCreateButton.addEventListener("click", handleGuestCreate);
+      }
       usernameInput.addEventListener("focus", () => {
         if (usernameInput.readOnly) {
           usernameInput.select();
@@ -992,7 +1021,7 @@
       } else if (typeof prefersReducedMotion.addListener === "function") {
         prefersReducedMotion.addListener(handleMotionPreferenceChange);
       }
-      syncButtonState(false);
+      setGuestCredentials(null);
       if (introAstronaut && !introAstronaut.complete) {
         introAstronaut.addEventListener("load", startIntroFloat, { once: true });
       } else {

@@ -5,7 +5,8 @@ export default class UserIndexHandler extends WatchdogHandler {
   createInitialState() {
     return buildUserIndexSnapshot({
       filePaths: [],
-      projectRoot: this.projectRoot
+      projectRoot: this.projectRoot,
+      runtimeParams: this.runtimeParams
     });
   }
 
@@ -14,7 +15,8 @@ export default class UserIndexHandler extends WatchdogHandler {
 
     this.state = buildUserIndexSnapshot({
       filePaths: Object.keys(pathIndex),
-      projectRoot: this.projectRoot
+      projectRoot: this.projectRoot,
+      runtimeParams: this.runtimeParams
     });
   }
 

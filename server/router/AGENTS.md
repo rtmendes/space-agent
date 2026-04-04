@@ -46,7 +46,7 @@ Rules:
 Current behavior:
 
 - cookies are parsed once from the incoming request
-- the auth service resolves the current user from the `space_session` cookie
+- the auth service resolves the current user from the `space_session` cookie or from the runtime single-user override
 - the request context is stored in AsyncLocalStorage for the lifetime of the request
 - `ensureAuthenticatedRequestContext(...)` is the shared guard for authenticated routes
 
@@ -54,19 +54,21 @@ Current behavior:
 
 Pages:
 
-- `pages_handler.js` is the only owner of page auth gating, pretty-route redirects, `/logout`, and `/pages/res/...`
+- `pages_handler.js` is the only owner of page auth gating, pretty-route redirects, `/logout`, `/pages/res/...`, and injected frontend runtime-config meta tags
 - `/login` is public
 - `/` and `/admin` require authentication
 
 Modules:
 
 - `mod_handler.js` resolves `/mod/...` through `server/lib/customware/module_inheritance.js`
+- logical `L1` and `L2` module overrides may come from the configured `CUSTOMWARE_PATH` storage root even though request paths stay `/mod/...`
 - `maxLayer` is read from explicit request data, query params, or admin-origin fallback through `layer_limit.js`
 
 Direct app-file fetches:
 
 - `app_fetch_handler.js` maps `/~/...` to the authenticated user's `L2/<username>/...`
 - `/L0/...`, `/L1/...`, and `/L2/...` are also supported for authenticated direct fetches
+- those request paths stay logical even when `CUSTOMWARE_PATH` moves writable `L1` and `L2` storage outside the repo
 - read permission checks are delegated to `createAppAccessController(...)`
 
 Responses:

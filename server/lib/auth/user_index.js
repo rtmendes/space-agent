@@ -1,11 +1,10 @@
 import fs from "node:fs";
-import path from "node:path";
-
 import {
   parseProjectUserConfigPath,
   parseProjectUserDirectoryPath,
   parseProjectUserLoginsPath,
-  parseProjectUserPasswordPath
+  parseProjectUserPasswordPath,
+  resolveProjectAbsolutePath
 } from "../customware/layout.js";
 import { parseSimpleYaml } from "../utils/yaml_lite.js";
 import { normalizeVerifierRecord } from "./passwords.js";
@@ -89,7 +88,7 @@ function buildUserIndexSnapshot(context = {}) {
     userRecord.userConfigPath = projectPath;
 
     try {
-      const absolutePath = path.join(projectRoot, projectPath.slice(1));
+      const absolutePath = resolveProjectAbsolutePath(projectRoot, projectPath, context.runtimeParams);
       const parsedConfig = parseSimpleYaml(fs.readFileSync(absolutePath, "utf8"));
       userRecord.fullName = String(parsedConfig.full_name || "").trim() || userConfigInfo.username;
     } catch (error) {
@@ -111,7 +110,7 @@ function buildUserIndexSnapshot(context = {}) {
     userRecord.passwordPath = projectPath;
 
     try {
-      const absolutePath = path.join(projectRoot, projectPath.slice(1));
+      const absolutePath = resolveProjectAbsolutePath(projectRoot, projectPath, context.runtimeParams);
       const parsedConfig = JSON.parse(fs.readFileSync(absolutePath, "utf8"));
       const verifier = normalizeVerifierRecord(parsedConfig);
       userRecord.verifier = verifier;
@@ -144,7 +143,7 @@ function buildUserIndexSnapshot(context = {}) {
     let parsedLogins = {};
 
     try {
-      const absolutePath = path.join(projectRoot, projectPath.slice(1));
+      const absolutePath = resolveProjectAbsolutePath(projectRoot, projectPath, context.runtimeParams);
       parsedLogins = readJsonObject(absolutePath);
     } catch (error) {
       errors.push({

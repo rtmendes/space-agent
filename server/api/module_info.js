@@ -79,6 +79,7 @@ export async function get(context) {
       ownerId: readOwnerId(context),
       path: readInfoPath(context),
       projectRoot: context.projectRoot,
+      runtimeParams: context.runtimeParams,
       username: context.user?.username,
       watchdog: context.watchdog
     });

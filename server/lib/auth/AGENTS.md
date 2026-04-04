@@ -22,10 +22,11 @@ Current files:
 
 Current user storage layout:
 
-- metadata: `app/L2/<username>/user.yaml`
-- password verifier: `app/L2/<username>/meta/password.json`
-- active sessions: `app/L2/<username>/meta/logins.json`
-- user-owned modules: `app/L2/<username>/mod/`
+- metadata: logical `L2/<username>/user.yaml`
+- password verifier: logical `L2/<username>/meta/password.json`
+- active sessions: logical `L2/<username>/meta/logins.json`
+- user-owned modules: logical `L2/<username>/mod/`
+- on disk those files live under `CUSTOMWARE_PATH/L2/...` when `CUSTOMWARE_PATH` is configured, otherwise under repo `app/L2/...`
 
 `user_files.js` is the canonical helper layer for those files. Do not write them through ad hoc path logic elsewhere.
 
@@ -38,6 +39,7 @@ Current session rules:
 - login uses the shared challenge and proof flow from `service.js`
 - successful login writes the session record into `meta/logins.json` and refreshes the watchdog
 - session revocation deletes the stored session entry and refreshes the watchdog
+- when `SINGLE_USER_APP` is enabled, request auth resolves every request to the implicit `user` principal and bypasses cookie-backed login entirely
 
 Current user-index rules:
 
@@ -63,4 +65,5 @@ Rules:
 - keep auth state and session rules centralized here
 - do not add direct cookie or session-file manipulation elsewhere when the auth service already owns the flow
 - treat the current local file-backed auth model as a constrained infrastructure contract, not as a place to casually grow unrelated policy
+- if user storage, session semantics, or login flow change, also update `app/L0/_all/mod/_core/onscreen_agent/ext/skills/development/` because its development skills mirror this contract
 - if user storage, session semantics, or login flow change, update this file and the relevant router or API docs in the same session

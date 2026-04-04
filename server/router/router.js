@@ -136,7 +136,19 @@ function ensureAuthenticatedOrRespond(res, requestContext, auth) {
 }
 
 function createRequestHandler(options) {
-  const { apiDir, apiRegistry, appDir, assetDir, auth, host, pagesDir, port, projectRoot, watchdog } = options;
+  const {
+    apiDir,
+    apiRegistry,
+    appDir,
+    assetDir,
+    auth,
+    host,
+    pagesDir,
+    port,
+    projectRoot,
+    runtimeParams,
+    watchdog
+  } = options;
 
   return async function requestHandler(req, res) {
     const requestUrl = new URL(req.url, `http://${req.headers.host || `${host}:${port}`}`);
@@ -175,6 +187,7 @@ function createRequestHandler(options) {
           host,
           port,
           projectRoot,
+          runtimeParams,
           requestContext,
           user: requestContext.user
         });
@@ -189,6 +202,7 @@ function createRequestHandler(options) {
           headers: req.headers,
           projectRoot,
           requestUrl,
+          runtimeParams,
           username: requestContext.user.username,
           watchdog
         });
@@ -201,6 +215,7 @@ function createRequestHandler(options) {
         }
         handleAppFetchRequest(res, requestUrl.pathname, {
           projectRoot,
+          runtimeParams,
           username: requestContext.user.username,
           watchdog
         });
@@ -210,6 +225,7 @@ function createRequestHandler(options) {
       await handlePageRequest(res, requestUrl, {
         auth,
         pagesDir,
+        runtimeParams,
         requestContext
       });
     });

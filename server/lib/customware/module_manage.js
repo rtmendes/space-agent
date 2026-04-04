@@ -5,14 +5,16 @@ import path from "node:path";
 import { cloneGitRepository, createGitClient } from "../git/client_create.js";
 import { sanitizeRemoteUrl } from "../git/shared.js";
 import { createAppAccessController, createHttpError, toAppRelativePath } from "./file_access.js";
+import { getRuntimeGroupIndex } from "./group_runtime.js";
 import { getLayerOrder, normalizeMaxLayer } from "./layer_limit.js";
 import {
   normalizeEntityId,
   normalizeAppProjectPath,
   parseModuleDirectoryRequestPath,
-  parseProjectModuleDirectoryPath
+  parseProjectModuleDirectoryPath,
+  resolveProjectAbsolutePath
 } from "./layout.js";
-import { collectAccessibleModuleEntries, createEmptyGroupIndex } from "./overrides.js";
+import { collectAccessibleModuleEntries } from "./overrides.js";
 
 const DEFAULT_REMOTE = "origin";
 const DEFAULT_REMOTE_FETCH = "+refs/heads/*:refs/remotes/origin/*";
@@ -25,12 +27,8 @@ function stripTrailingSlash(value) {
   return text.endsWith("/") ? text.slice(0, -1) : text;
 }
 
-function getGroupIndex(watchdog) {
-  if (!watchdog || typeof watchdog.getIndex !== "function") {
-    return createEmptyGroupIndex();
-  }
-
-  return watchdog.getIndex("group_index") || createEmptyGroupIndex();
+function getGroupIndex(watchdog, runtimeParams) {
+  return getRuntimeGroupIndex(watchdog, runtimeParams);
 }
 
 function getPathIndex(watchdog) {
@@ -53,8 +51,8 @@ function hasDescendantPath(pathIndex, projectPath) {
   );
 }
 
-function createAbsolutePath(projectRoot, projectPath) {
-  return path.join(String(projectRoot || ""), stripTrailingSlash(String(projectPath || "").slice(1)));
+function createAbsolutePath(projectRoot, projectPath, runtimeParams) {
+  return resolveProjectAbsolutePath(projectRoot, projectPath, runtimeParams);
 }
 
 function createModulePathError(value) {
@@ -160,7 +158,8 @@ function collectVisibleModuleDirectoryEntries(options = {}) {
   }
 
   const accessController = createAppAccessController({
-    groupIndex: getGroupIndex(options.watchdog),
+    groupIndex: getGroupIndex(options.watchdog, options.runtimeParams),
+    runtimeParams: options.runtimeParams,
     username: options.username
   });
   const normalizedSearch = normalizeModuleSearch(options.search);
@@ -274,7 +273,8 @@ function normalizeModuleTargetPath(inputPath, options = {}) {
   }
 
   const accessController = createAppAccessController({
-    groupIndex: getGroupIndex(options.watchdog),
+    groupIndex: getGroupIndex(options.watchdog, options.runtimeParams),
+    runtimeParams: options.runtimeParams,
     username: options.username
   });
 
@@ -284,7 +284,11 @@ function normalizeModuleTargetPath(inputPath, options = {}) {
 
   return {
     ...modulePathInfo,
-    absolutePath: createAbsolutePath(options.projectRoot, normalizedProjectPath),
+    absolutePath: createAbsolutePath(
+      options.projectRoot,
+      normalizedProjectPath,
+      options.runtimeParams
+    ),
     appPath: toAppRelativePath(normalizedProjectPath),
     projectPath: normalizedProjectPath
   };
@@ -426,7 +430,11 @@ async function checkoutRequestedRevision(gitClient, options = {}) {
 
 async function installIntoNewPath(targetPathInfo, options = {}) {
   const ownerRootProjectPath = `/app/${targetPathInfo.layer}/${targetPathInfo.ownerId}`;
-  const ownerRootAbsolutePath = createAbsolutePath(options.projectRoot, ownerRootProjectPath);
+  const ownerRootAbsolutePath = createAbsolutePath(
+    options.projectRoot,
+    ownerRootProjectPath,
+    options.runtimeParams
+  );
 
   await fsPromises.mkdir(ownerRootAbsolutePath, { recursive: true });
   const tempAbsolutePath = await fsPromises.mkdtemp(path.join(ownerRootAbsolutePath, ".module_install_"));
@@ -505,13 +513,14 @@ async function updateExistingPath(targetPathInfo, options = {}) {
 async function resolveInstalledLocations(options = {}) {
   const visibleEntries = collectVisibleModuleDirectoryEntries({
     includeOtherUsers: options.includeOtherUsers === true,
-    groupIndex: getGroupIndex(options.watchdog),
+    groupIndex: getGroupIndex(options.watchdog, options.runtimeParams),
     maxLayer: normalizeMaxLayer(options.maxLayer),
     ownerId: options.ownerId,
+    runtimeParams: options.runtimeParams,
     username: options.username
   }).filter((entry) => entry.requestPath === options.requestPath);
   const selectedEntries = collectAccessibleModuleEntries(options.watchdog?.getPaths?.() || [], {
-    groupIndex: getGroupIndex(options.watchdog),
+    groupIndex: getGroupIndex(options.watchdog, options.runtimeParams),
     maxLayer: normalizeMaxLayer(options.maxLayer),
     parseProjectPath: parseProjectModuleDirectoryPath,
     username: options.username
@@ -535,7 +544,7 @@ async function resolveInstalledLocations(options = {}) {
       canWrite: entry.canWrite,
       effective: selectedEntryMap.has(entry.projectPath),
       git: await readModuleGitInfo({
-        absolutePath: createAbsolutePath(options.projectRoot, entry.projectPath)
+        absolutePath: createAbsolutePath(options.projectRoot, entry.projectPath, options.runtimeParams)
       }),
       layer: entry.layer,
       ownerId: entry.ownerId,
@@ -564,6 +573,7 @@ async function readModuleInfo(options = {}) {
     ownerId: requestedOwnerId,
     projectRoot: options.projectRoot,
     requestPath: moduleReference.requestPath,
+    runtimeParams: options.runtimeParams,
     username: options.username,
     watchdog: options.watchdog
   });
@@ -628,6 +638,7 @@ async function listInstalledModules(options = {}) {
     area,
     maxLayer: 2,
     ownerId: options.ownerId,
+    runtimeParams: options.runtimeParams,
     search: options.search,
     username: options.username,
     watchdog: options.watchdog
@@ -670,7 +681,11 @@ async function listInstalledModules(options = {}) {
           canRead: groupedEntry.canRead,
           canWrite: false,
           git: await readModuleGitInfo({
-            absolutePath: createAbsolutePath(options.projectRoot, representativeEntry.projectPath)
+            absolutePath: createAbsolutePath(
+              options.projectRoot,
+              representativeEntry.projectPath,
+              options.runtimeParams
+            )
           }),
           id: createModuleListItemId(groupedEntry, {
             aggregated: true,
@@ -698,7 +713,7 @@ async function listInstalledModules(options = {}) {
       canRead: entry.canRead,
       canWrite: entry.canWrite,
       git: await readModuleGitInfo({
-        absolutePath: createAbsolutePath(options.projectRoot, entry.projectPath)
+        absolutePath: createAbsolutePath(options.projectRoot, entry.projectPath, options.runtimeParams)
       }),
       id: createModuleListItemId(entry, {
         area

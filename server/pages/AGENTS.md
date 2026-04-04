@@ -27,18 +27,22 @@ Current public shell assets:
 `index.html`:
 
 - loads shared framework CSS and `/mod/_core/framework/js/initFw.js`
-- keeps the body minimal and exposes exactly the `html/body/start` extension anchor
+- receives injected `meta[name="space-config"]` tags for any `frontend_exposed` runtime parameters
+- keeps the body minimal and exposes exactly the `body/start` extension anchor
 
 `admin.html`:
 
 - loads the same framework bootstrap with `?maxLayer=0`
 - declares `meta[name="space-max-layer"]` with content `0`
+- receives the same injected `meta[name="space-config"]` tags for `frontend_exposed` runtime parameters
 - keeps the body minimal and exposes exactly the `page/admin/body/start` extension anchor
 
 `login.html`:
 
 - is public and must not depend on authenticated `/mod/...` assets
 - owns the login flow, guest creation flow, and pre-auth layout
+- reads injected `meta[name="space-config"]` tags directly so guest-login UI can follow backend runtime parameters without authenticated module imports
+- keeps the self-host call-to-action visually separated from the sign-in form even when guest account creation is disabled and the guest-only block is hidden
 - keeps login-specific styling and motion local
 
 ## Public Asset Mirroring

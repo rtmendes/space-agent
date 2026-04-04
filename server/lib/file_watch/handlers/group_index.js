@@ -5,7 +5,8 @@ export default class GroupIndexHandler extends WatchdogHandler {
   createInitialState() {
     return buildGroupIndexSnapshot({
       filePaths: [],
-      projectRoot: this.projectRoot
+      projectRoot: this.projectRoot,
+      runtimeParams: this.runtimeParams
     });
   }
 
@@ -14,7 +15,8 @@ export default class GroupIndexHandler extends WatchdogHandler {
 
     this.state = buildGroupIndexSnapshot({
       filePaths: Object.keys(pathIndex),
-      projectRoot: this.projectRoot
+      projectRoot: this.projectRoot,
+      runtimeParams: this.runtimeParams
     });
   }
 

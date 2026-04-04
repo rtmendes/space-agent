@@ -30,12 +30,14 @@ export async function post(context) {
   try {
     const targetPathInfo = normalizeModuleTargetPath(readTargetPath(context), {
       projectRoot: context.projectRoot,
+      runtimeParams: context.runtimeParams,
       username: context.user?.username,
       watchdog: context.watchdog
     });
     const result = deleteAppPath({
       path: targetPathInfo.projectPath,
       projectRoot: context.projectRoot,
+      runtimeParams: context.runtimeParams,
       username: context.user?.username,
       watchdog: context.watchdog
     });
@@ -50,6 +52,7 @@ export async function post(context) {
         maxLayer: readMaxLayer(context),
         path: targetPathInfo.requestPath,
         projectRoot: context.projectRoot,
+        runtimeParams: context.runtimeParams,
         username: context.user?.username,
         watchdog: context.watchdog
       })

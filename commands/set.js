@@ -4,7 +4,7 @@ function parseSetArgs(args) {
   const paramName = String(args[0] || "").trim();
   const value = args.slice(1).join(" ");
 
-  if (!paramName || !value) {
+  if (!paramName || args.length < 2) {
     throw new Error('Usage: node space set <param> <value>');
   }
 

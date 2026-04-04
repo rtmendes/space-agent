@@ -175,8 +175,33 @@ function isAbortError(error) {
   return Boolean(error && (error.name === "AbortError" || error.code === 20));
 }
 
+function dataTransferContainsFiles(dataTransfer) {
+  if (!dataTransfer) {
+    return false;
+  }
+
+  const items = Array.from(dataTransfer.items || []);
+
+  if (items.some((item) => item?.kind === "file")) {
+    return true;
+  }
+
+  const types = Array.from(dataTransfer.types || []);
+
+  if (types.includes("Files")) {
+    return true;
+  }
+
+  if (typeof dataTransfer.types?.contains === "function" && dataTransfer.types.contains("Files")) {
+    return true;
+  }
+
+  return Number(dataTransfer.files?.length) > 0;
+}
+
 const model = {
   activeRequestController: null,
+  attachmentDragDepth: 0,
   currentChatRuntime: null,
   defaultSystemPrompt: "",
   draft: "",
@@ -188,6 +213,7 @@ const model = {
   historyTokenCount: 0,
   historyPersistPromise: null,
   initializationPromise: null,
+  isAttachmentDragActive: false,
   isCompactingHistory: false,
   isInitialized: false,
   isLoadingDefaultSystemPrompt: false,
@@ -481,6 +507,7 @@ const model = {
 
   unmount() {
     this.cancelStreamingMessageRender();
+    this.resetAttachmentDragState();
     this.refs = {
       attachmentInput: null,
       historyDialog: null,
@@ -694,6 +721,49 @@ const model = {
     }
   },
 
+  resetAttachmentDragState() {
+    this.attachmentDragDepth = 0;
+    this.isAttachmentDragActive = false;
+  },
+
+  appendDraftAttachments(files) {
+    const nextAttachments = createDraftAttachments(files);
+
+    if (!nextAttachments.length) {
+      return false;
+    }
+
+    const existingKeys = new Set(
+      this.draftAttachments.map(
+        (attachment) =>
+          `${attachment.name}::${attachment.size}::${attachment.lastModified}::${attachment.type}`
+      )
+    );
+    const uniqueAttachments = nextAttachments.filter((attachment) => {
+      const key = `${attachment.name}::${attachment.size}::${attachment.lastModified}::${attachment.type}`;
+
+      if (existingKeys.has(key)) {
+        return false;
+      }
+
+      existingKeys.add(key);
+      return true;
+    });
+
+    if (!uniqueAttachments.length) {
+      return false;
+    }
+
+    this.draftAttachments = [...this.draftAttachments, ...uniqueAttachments];
+    this.render({
+      preserveScroll: true
+    });
+    this.status = `${this.draftAttachments.length} attachment${
+      this.draftAttachments.length === 1 ? "" : "s"
+    } ready.`;
+    return true;
+  },
+
   createDraftSubmissionSnapshot() {
     const content = this.draft.trim();
     const attachments = this.draftAttachments.slice();
@@ -777,42 +847,65 @@ const model = {
     this.refs.attachmentInput?.click();
   },
 
-  handleAttachmentInput(event) {
-    const nextAttachments = createDraftAttachments(event?.target?.files);
-
-    if (!nextAttachments.length) {
-      if (event?.target) {
-        event.target.value = "";
-      }
+  handleAttachmentDragEnter(event) {
+    if (!dataTransferContainsFiles(event?.dataTransfer)) {
       return;
     }
 
-    const existingKeys = new Set(
-      this.draftAttachments.map(
-        (attachment) =>
-          `${attachment.name}::${attachment.size}::${attachment.lastModified}::${attachment.type}`
-      )
-    );
-    const uniqueAttachments = nextAttachments.filter((attachment) => {
-      const key = `${attachment.name}::${attachment.size}::${attachment.lastModified}::${attachment.type}`;
+    event.preventDefault();
+    this.attachmentDragDepth += 1;
 
-      if (existingKeys.has(key)) {
-        return false;
-      }
-
-      existingKeys.add(key);
-      return true;
-    });
-
-    if (uniqueAttachments.length) {
-      this.draftAttachments = [...this.draftAttachments, ...uniqueAttachments];
-      this.render({
-        preserveScroll: true
-      });
-      this.status = `${this.draftAttachments.length} attachment${
-        this.draftAttachments.length === 1 ? "" : "s"
-      } ready.`;
+    if (!this.isAttachmentPickerDisabled) {
+      this.isAttachmentDragActive = true;
     }
+  },
+
+  handleAttachmentDragOver(event) {
+    if (!dataTransferContainsFiles(event?.dataTransfer)) {
+      return;
+    }
+
+    event.preventDefault();
+
+    if (event.dataTransfer) {
+      event.dataTransfer.dropEffect = "copy";
+    }
+
+    if (!this.isAttachmentPickerDisabled) {
+      this.isAttachmentDragActive = true;
+    }
+  },
+
+  handleAttachmentDragLeave(event) {
+    if (!dataTransferContainsFiles(event?.dataTransfer)) {
+      return;
+    }
+
+    this.attachmentDragDepth = Math.max(0, this.attachmentDragDepth - 1);
+
+    if (this.attachmentDragDepth === 0) {
+      this.isAttachmentDragActive = false;
+    }
+  },
+
+  handleAttachmentDrop(event) {
+    if (!dataTransferContainsFiles(event?.dataTransfer)) {
+      return;
+    }
+
+    event.preventDefault();
+    const droppedFiles = event.dataTransfer?.files;
+    this.resetAttachmentDragState();
+
+    if (this.isAttachmentPickerDisabled) {
+      return;
+    }
+
+    this.appendDraftAttachments(droppedFiles);
+  },
+
+  handleAttachmentInput(event) {
+    this.appendDraftAttachments(event?.target?.files);
 
     if (event?.target) {
       event.target.value = "";

@@ -6,6 +6,16 @@ let serverRuntime;
 let mainWindow;
 let isQuitting = false;
 
+function createDesktopRuntimeParamOverrides() {
+  if (!app.isPackaged) {
+    return {};
+  }
+
+  return {
+    SINGLE_USER_APP: "true"
+  };
+}
+
 function showMainWindow() {
   if (!mainWindow) {
     return;
@@ -55,10 +65,28 @@ function createWindow() {
   return mainWindow;
 }
 
+function stopServerRuntime() {
+  if (!serverRuntime) {
+    return;
+  }
+
+  const runtime = serverRuntime;
+  serverRuntime = null;
+
+  if (runtime.watchdog && typeof runtime.watchdog.stop === "function") {
+    runtime.watchdog.stop();
+  }
+
+  if (runtime.server && runtime.server.listening) {
+    runtime.server.close();
+  }
+}
+
 async function startDesktop() {
-  serverRuntime = createAgentServer({
+  serverRuntime = await createAgentServer({
     host: "127.0.0.1",
-    port: Number(process.env.PORT || 3000)
+    port: Number(process.env.PORT || 3000),
+    runtimeParamOverrides: createDesktopRuntimeParamOverrides()
   });
 
   await serverRuntime.listen();
@@ -85,10 +113,7 @@ app.on("window-all-closed", () => {
 
 app.on("before-quit", () => {
   isQuitting = true;
-
-  if (serverRuntime && serverRuntime.server.listening) {
-    serverRuntime.server.close();
-  }
+  stopServerRuntime();
 });
 
 startDesktop().catch((error) => {

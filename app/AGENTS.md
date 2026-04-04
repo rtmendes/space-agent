@@ -23,15 +23,49 @@ Current module-local docs in the app tree:
 - `app/L0/_all/mod/_core/admin/views/agent/AGENTS.md`
 - `app/L0/_all/mod/_core/admin/views/files/AGENTS.md`
 - `app/L0/_all/mod/_core/admin/views/modules/AGENTS.md`
-- `app/L0/_all/mod/_core/chat/AGENTS.md`
 - `app/L0/_all/mod/_core/onscreen_agent/AGENTS.md`
 - `app/L0/_all/mod/_core/onscreen_menu/AGENTS.md`
+- `app/L0/_admin/mod/_core/overlay_agent/AGENTS.md`
 
 Update rules:
 
 - update the nearest module doc when you change a documented module
 - update this file only when the app-wide contract, ownership map, composition model, or shared frontend conventions changed
 - keep implementation-specific detail out of this file when a deeper doc can own it
+
+## How To Document App Child Docs
+
+All app child docs at the same depth should use the same backbone.
+
+Default module-doc section order:
+
+- `Purpose`
+- `Documentation Hierarchy` when the module owns deeper docs or stable sub-areas
+- `Ownership`
+- one or more concrete contract sections that cover the seams this module exposes
+- `Development Guidance`
+
+Required contract coverage for app docs:
+
+- entry points and extension seams: page anchors, routed views, `ext/html/` and `ext/js/` files, exported runtime namespaces, iframe boundaries, and route mounts
+- state and persistence: stores, `init()` or `mount()` or `unmount()` lifecycle, session or local storage keys, app-file paths, backend endpoints, and background async work
+- component and DOM ownership: which HTML files mount which JS or store files, which components are thin adapters, and which DOM refs or `x-ref` inputs are required
+- visual and style ownership: which CSS is shared versus local, which `_core/visual` primitives are reused, and any mirrored public-shell assets or visual constraints
+- cross-module links: which other modules this one may call, extend, or be extended by, and which dependencies are intentionally forbidden
+
+Child-doc split rules:
+
+- parent app docs own domain-wide composition rules and the map of module docs
+- module docs own the link between HTML, JS, stores, CSS, assets, and extension seams inside that module
+- leaf view or component docs, when added, should own the exact UI, store, and API contract for that surface without re-documenting the whole module
+
+Module-type emphasis:
+
+- platform modules such as `framework/` and `visual/` should emphasize reusable namespaces, primitives, tokens, and import boundaries
+- shell modules such as `router/` and `admin/` should emphasize anchors, routing, layout seams, and child-surface ownership
+- feature modules and admin views should emphasize stores, API calls, persistence, component linkage, and local styling rules
+
+When a module later grows multiple independently owned sub-areas, add a local `Documentation Hierarchy` section there before adding new child docs.
 
 ## Structure
 
@@ -54,8 +88,7 @@ Current major first-party modules under `app/L0/_all/mod/_core/`:
 - `visual/`: shared visual language, canvas, chrome, buttons, dialog helpers, and conversation rendering primitives
 - `router/`: root routed shell for the authenticated app
 - `admin/`: firmware-backed admin shell and panels
-- `chat/`: standalone chat surface and legacy reference module
-- `onscreen_agent/`: floating routed overlay agent
+- `onscreen_agent/`: floating routed overlay agent and the first-party user-facing agent surface
 - `onscreen_menu/`: top-right routed shell menu extension
 - `dashboard/` and `space/`: current routed feature modules under the router
 
@@ -64,16 +97,19 @@ Current major first-party modules under `app/L0/_all/mod/_core/`:
 - `L0` is firmware and should stay update-driven
 - `L1` contains per-group customware; `_all` and `_admin` are special groups
 - `L2` contains per-user customware; users should only write inside their own `L2/<username>/`
-- `app/L1` and `app/L2` are transient runtime state and are gitignored; do not document repo-owned example content there as if it were durable framework structure
-- `app/L2/<username>/user.yaml` stores user metadata such as `full_name`; auth state lives under `app/L2/<username>/meta/`
+- the writable `L1` and `L2` layers are logical app paths first; on disk they default to `app/L1` and `app/L2`, but the backend may relocate them to `CUSTOMWARE_PATH/L1` and `CUSTOMWARE_PATH/L2`
+- repo-local `app/L1` and `app/L2` are transient runtime state and are gitignored; do not document repo-owned example content there as if it were durable framework structure
+- `L2/<username>/user.yaml` stores user metadata such as `full_name`; auth state lives under `L2/<username>/meta/`
 - groups may include users and other groups, and may declare managers that can write to that group's `L1` area
 - read permissions are explicit: a user can read their own `L2/<username>/`, and can read `L0/<group>/` and `L1/<group>/` for groups they belong to
 - write permissions are explicit: a user can write their own `L2/<username>/`; a user can write `L1/<group>/` only when they manage that group directly or through a managing-group include chain; members of `_admin` can write any `L1/` and `L2/` path; nobody writes `L0/`
 - modules are the supported browser delivery and extension unit
 - each group or user owns a `mod/` folder, and module contents are namespaced as `mod/<author>/<repo>/...`
 - browser-facing code and assets should normally be delivered through `/mod/...`
+- group-scoped onscreen skill packs may live under readable layer roots such as `L0/_admin/mod/.../ext/skills/`; visibility follows the same readable-root permission model as app-file discovery
 - page shells may clamp module and extension resolution with `meta[name="space-max-layer"]`; the current admin shell sets `0`
-- authenticated app-file APIs operate on app-rooted paths such as `L2/alice/user.yaml` or `/app/L2/alice/user.yaml`, and supported APIs may use `~` or `~/...` as shorthand for the authenticated user's `L2/<username>/...`
+- page shells may also receive injected `meta[name="space-config"]` tags for runtime parameters marked `frontend_exposed`
+- authenticated app-file APIs operate on logical app-rooted paths such as `L2/alice/user.yaml` or `/app/L2/alice/user.yaml`, and supported APIs may use `~` or `~/...` as shorthand for the authenticated user's `L2/<username>/...`
 - first-party application development should happen primarily under `app/L0/_all/mod/_core/`
 - use `L1` and `L2` for layered overrides and customware behavior, not as the main home for repo-owned first-party features
 
@@ -91,13 +127,13 @@ Current boot flow:
 
 Current entry anchors:
 
-- `/` exposes `html/body/start`, which mounts `_core/router`
+- `/` exposes `body/start`, which mounts `_core/router`
 - `/admin` exposes `page/admin/body/start`, which mounts `_core/admin`
 
 Default composition guidance:
 
 - keep page shells small
-- mount real features through thin `ext/...` adapter files
+- mount real features through thin `ext/html/...` adapter files
 - let the owning module expose the next seam
 - add explicit extension points when downstream customization is realistic
 
@@ -108,15 +144,18 @@ There are two primary extension styles in the frontend runtime.
 HTML extension anchors:
 
 - declare a seam with `<x-extension id="some/path">`
-- matching HTML files live at `mod/<author>/<repo>/ext/some/path/*.html`
+- matching HTML files live at `mod/<author>/<repo>/ext/html/some/path/*.html`
+- HTML callers name only the seam; the runtime loads `<x-extension>` tags from the module's `ext/html/` tree automatically
 - thin extension files should usually mount the real component from the module root instead of containing the entire feature directly
-- root page anchors such as `html/body/start` and `page/admin/body/start` are fixed shell contracts; module-owned anchors should be named after the owning module path, for example `_core/router/shell_start`
+- root page anchors such as `body/start` and `page/admin/body/start` are fixed shell contracts; module-owned anchors should be named after the owning module path, for example `_core/router/shell_start`
 
 JS extension hooks:
 
 - use `space.extend(import.meta, async function name() {})` for behavior seams
 - wrapped functions expose `/start` and `/end` hook points
 - wrapped functions become async and should be awaited by callers
+- JS hook files live at `mod/<author>/<repo>/ext/js/<extension-point>/*.js` or `*.mjs`
+- JS callers name only the seam; the runtime loads hooks from the module's `ext/js/` tree automatically
 - use `callJsExtensions("name", data)` only when the seam is an explicit event rather than a function lifecycle
 
 Resolution and overrides:
@@ -158,12 +197,10 @@ Runtime guidance:
 - framework-backed pages that boot through `/mod/_core/framework/js/initFw.js` already initialize the runtime before feature modules mount
 - `globalThis.space` is scoped to the current window or iframe only; do not publish it into other browsing contexts
 - use `space.api` for authenticated backend calls
+- use `space.api.userSelfInfo()` as the canonical browser-side identity and scope snapshot; it returns group membership plus the readable and writable logical app roots the current user can use from the frontend
+- use `space.config` for frontend reads of backend parameters that were explicitly marked `frontend_exposed`
 - use `space.utils.markdown` and `space.utils.yaml` for lightweight frontend parsing owned by browser modules
 - browser storage is for small non-authoritative UI state; persistent user state belongs in app files or explicit backend APIs
-
-Legacy note:
-
-- `_core/chat` is a standalone page-oriented reference module and still uses direct `createStore()` plus `localStorage`; do not treat that older pattern as the default for new router-hosted work
 
 ## Visual Direction
 
@@ -197,7 +234,6 @@ Detailed visual subsystem rules now live in `app/L0/_all/mod/_core/visual/AGENTS
 - `admin/views/agent/` owns the admin-side agent surface; see `app/L0/_all/mod/_core/admin/views/agent/AGENTS.md`
 - `admin/views/files/` owns the firmware-backed file browser; see `app/L0/_all/mod/_core/admin/views/files/AGENTS.md`
 - `admin/views/modules/` owns the firmware-backed modules panel; see `app/L0/_all/mod/_core/admin/views/modules/AGENTS.md`
-- `chat/` owns the standalone reference chat surface; see `app/L0/_all/mod/_core/chat/AGENTS.md`
 - `onscreen_agent/` owns the floating routed overlay agent; see `app/L0/_all/mod/_core/onscreen_agent/AGENTS.md`
 - `onscreen_menu/` owns the routed shell menu extension; see `app/L0/_all/mod/_core/onscreen_menu/AGENTS.md`
 
@@ -205,6 +241,6 @@ Detailed visual subsystem rules now live in `app/L0/_all/mod/_core/visual/AGENTS
 
 - keep root HTML shells thin and static; session gating belongs in the server router, not in inline frontend boot code
 - cache empty extension lookups as valid results; a missing extension point should not cause repeated polling
-- because extension lookups are cached in memory, adding new `ext/...` files often requires a refresh before the running page discovers them
+- because extension lookups are cached in memory, adding new `ext/html/...` or `ext/js/...` files often requires a refresh before the running page discovers them
 - browser-side file changes still require a manual browser refresh; live reload is not wired into the app runtime yet
 - when you add or change a stable app seam, update the owning local doc and this file if the app-wide composition model changed

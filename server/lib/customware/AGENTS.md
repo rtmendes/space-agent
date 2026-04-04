@@ -4,7 +4,7 @@
 
 `server/lib/customware/` owns the layered app filesystem and module model.
 
-This subtree is the canonical place for app-path normalization, group-derived permissions, layer limits, module inheritance, extension override resolution, app-file access, and module management. Do not re-implement those rules elsewhere.
+This subtree is the canonical place for logical app-path normalization, customware-root resolution, group-derived permissions, layer limits, module inheritance, extension override resolution, app-file access, and module management. Do not re-implement those rules elsewhere.
 
 Documentation is top priority for this subtree. After any change under `server/lib/customware/`, update this file and any affected parent or dependent docs in the same session.
 
@@ -12,7 +12,7 @@ Documentation is top priority for this subtree. After any change under `server/l
 
 Current files:
 
-- `layout.js`: path normalization, entity-id normalization, and parser helpers for app, group, user, module, and extension paths
+- `layout.js`: path normalization, entity-id normalization, logical-to-disk resolution for `L0`/`L1`/`L2`, and parser helpers for app, group, user, module, and extension paths
 - `layer_limit.js`: `maxLayer` parsing, normalization, and request-level resolution
 - `group_files.js`: normalized `L1/<group>/group.yaml` read and write helpers used by CLI-managed group editing
 - `group_index.js`: derived group membership and management graph from `group.yaml`
@@ -27,6 +27,8 @@ Current files:
 Path rules:
 
 - app-rooted paths normalize to `/app/...`
+- logical `/app/L0/...` always resolve under repo `app/L0/...`
+- logical `/app/L1/...` and `/app/L2/...` resolve under `CUSTOMWARE_PATH/L1/...` and `CUSTOMWARE_PATH/L2/...` when `CUSTOMWARE_PATH` is configured, otherwise under repo `app/L1/...` and `app/L2/...`
 - writable user-relative shorthand `~` and `~/...` are expanded by `file_access.js`
 - module request paths normalize under `/mod/...`
 - group and user ids are normalized through `normalizeEntityId(...)`
@@ -38,6 +40,7 @@ Permission rules:
 - users may write `L1/<group>/` only when they manage that group
 - `_admin` members may write any `L1/` and `L2/` path
 - readable group membership comes from the derived `group_index`
+- when `SINGLE_USER_APP` is enabled, runtime permission helpers treat the implicit `user` principal as a virtual `_admin` member even if no user or group files exist on disk
 
 `group.yaml` contract:
 
@@ -63,6 +66,7 @@ High-level resolution order:
 Important rules:
 
 - `layer_limit.js` constrains module and extension resolution through `maxLayer`
+- frontend HTML anchors resolve through module `ext/html/...` paths and JS hooks resolve through module `ext/js/...` paths
 - exact same override keys replace lower-ranked entries
 - different extension filenames under the same extension point compose together
 - `module_inheritance.js` and `extension_overrides.js` are the only supported paths for `/mod/...` and extension resolution
@@ -79,11 +83,12 @@ Important rules:
 - app-file move
 - app-file info
 - pattern-based `file_paths` lookup
+- serialized frontend access-scope snapshots used by `user_self_info`
 
 Rules:
 
 - batch file operations must validate all targets before mutation begins
-- keep permission, duplication, overlap, and path-normalization logic centralized here
+- keep permission, duplication, overlap, path-normalization, and logical-to-disk resolution logic centralized here
 
 `module_manage.js` is the canonical entry point for:
 
@@ -106,4 +111,5 @@ Admin-only access is required for aggregated or cross-user user-layer listings.
 - do not add ad hoc filesystem walks or permission checks to endpoints when this subtree already owns the rule
 - keep changes to path semantics, inheritance, or permissions centralized here
 - refresh the watchdog after mutations that affect indexed module, group, user, or file state
+- if path, layer, module-resolution, or permission rules change, also update `app/L0/_all/mod/_core/onscreen_agent/ext/skills/development/` because its development skills mirror this contract
 - if you change path normalization, group semantics, `maxLayer`, file access, or module-management rules, update this file and the relevant server or API docs in the same session

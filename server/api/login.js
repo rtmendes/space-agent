@@ -1,3 +1,5 @@
+import { isSingleUserApp } from "../lib/utils/runtime_params.js";
+
 export const allowAnonymous = true;
 
 const FAILED_LOGIN_MIN_DURATION_MS = 1000;
@@ -23,6 +25,10 @@ async function waitForMinimumDuration(startedAtMs, minimumDurationMs) {
 }
 
 export async function post(context) {
+  if (isSingleUserApp(context.runtimeParams)) {
+    throw createHttpError("Password login is disabled in single-user mode.", 403);
+  }
+
   const startedAtMs = Date.now();
   const payload =
     context.body && typeof context.body === "object" && !Buffer.isBuffer(context.body)
@@ -51,7 +57,7 @@ export async function post(context) {
     };
   } catch (error) {
     await waitForMinimumDuration(startedAtMs, FAILED_LOGIN_MIN_DURATION_MS);
-    throw createHttpError(error.message || "Login failed.", 401);
+    throw createHttpError(error.message || "Login failed.", Number(error.statusCode) || 401);
   }
 
   return response;

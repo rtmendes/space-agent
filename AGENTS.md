@@ -23,6 +23,21 @@ Always update the relevant docs in the same session as the code change:
 - remove stale or contradictory documentation immediately
 - do not create parallel architecture notes in `README.md`; durable agent guidance belongs in `AGENTS.md`
 
+Documentation depth model:
+
+- level 0 repo doc: mission, top-level architecture, cross-cutting rules, and the documentation policy for the whole tree
+- level 1 core domain docs: `app/`, `server/`, `commands/`, and `packaging/` architecture, plus the template for their immediate child docs
+- level 2 subsystem or module docs: one major area, its owned files, its stable contracts, and the template for any deeper docs in that subtree
+- level 3 leaf docs: one concrete surface, feature, view, or service contract with exact implementation guidance
+- if a level 2 or level 3 doc later gains children, it stops being a leaf and must add its own `Documentation Hierarchy` section before those child docs land
+
+Documentation shape rules:
+
+- sibling docs at the same depth should use the same section order unless a domain-specific contract truly needs one extra section
+- every `AGENTS.md` should answer, in this order when practical: what this scope owns, which files or surfaces it owns, which stable contracts it enforces, how child docs divide the remaining detail, and what changes require doc updates
+- parent docs explain boundaries, ownership maps, and stable seams; child docs explain concrete file-level behavior, state, styles, assets, and API usage
+- do not split one ownership boundary across multiple ad hoc notes when one owning `AGENTS.md` can explain the links between code, styles, state, assets, and APIs more clearly
+
 ## Introduction
 
 Space Agent is a browser-first AI agent runtime.
@@ -85,12 +100,14 @@ Project concepts:
 - browser modules are namespaced as `mod/<author>/<repo>/...`
 - frontend extensibility is a core runtime primitive; the framework installs `space.extend` first and the browser runtime grows by loading modules and extension points deterministically
 - the layered browser model is `app/L0` firmware, `app/L1` group customware, and `app/L2` user customware
-- `app/L1` and `app/L2` are transient runtime state and are gitignored; do not treat them as durable repo-owned sample content
-- `app/L2/<username>/user.yaml` stores user metadata such as `full_name`; auth state lives under `app/L2/<username>/meta/`
+- `app/L1` and `app/L2` are the logical writable layers; on disk they default to `app/L1` and `app/L2`, but when `CUSTOMWARE_PATH` is set the backend stores them under `CUSTOMWARE_PATH/L1` and `CUSTOMWARE_PATH/L2`
+- writable layer content is transient runtime state and is gitignored when it lives under the repo; do not treat it as durable repo-owned sample content
+- `L2/<username>/user.yaml` stores user metadata such as `full_name`; auth state lives under `L2/<username>/meta/`
 - the server resolves `/mod/...` requests through the layered inheritance model and honors a `maxLayer` ceiling that defaults to `2`
 - the `/admin` frontend clamps module and extension resolution to `L0` with `maxLayer=0` so admin UI assets stay firmware-backed even though app file APIs still operate on normal writable layers
 - the browser authenticates through the server and uses a server-issued session cookie for protected API, module, and app-file access
-- app file APIs use app-rooted paths such as `L2/alice/user.yaml` or `/app/L2/alice/user.yaml`, and supported endpoints may also accept `~` or `~/...` for the authenticated user's `L2/<username>/...`
+- runtime parameters are defined in `commands/params.yaml`; `node space serve` resolves them in this order: launch arguments, stored `.env` params written by `node space set`, then process environment variables, then schema defaults; `CUSTOMWARE_PATH` is the parent directory for writable backend `L1/` and `L2/` storage when configured, and page shells receive only `frontend_exposed` values as injected meta tags
+- app file APIs use logical app-rooted paths such as `L2/alice/user.yaml` or `/app/L2/alice/user.yaml`, and supported endpoints may also accept `~` or `~/...` for the authenticated user's `L2/<username>/...`; those logical paths do not change when `CUSTOMWARE_PATH` relocates the writable backend roots
 - non-`/api` and non-`/mod` browser entry routes are served from `server/pages/`; `/login` is public and the protected page shells live behind the router-side session gate
 - detailed browser-runtime rules live in `/app/AGENTS.md`
 - detailed server-runtime rules live in `/server/AGENTS.md`
@@ -122,6 +139,31 @@ Project concepts:
 - `npm run install:packaging` to install packaging-only dependencies
 - `npm run desktop:dev`, `npm run desktop:pack`, and `npm run desktop:dist` for the Electron host and packaging flow
 
+## Documentation System
+
+Use one predictable documentation spine across the tree.
+
+Required section pattern by depth:
+
+- repo root: documentation policy, architecture, top-level structure, ownership map, and the contract for the core docs
+- core domain docs: purpose, documentation hierarchy, domain structure, shared contracts, child-doc template, and guidance
+- subsystem or module docs that own children: purpose, documentation hierarchy, ownership, local contracts, child-doc template, and development guidance
+- leaf docs: purpose, ownership, the concrete local contracts, and development guidance
+
+Core-doc obligations:
+
+- `/app/AGENTS.md` must define how app module docs describe entry anchors, stores, components, styles, visual primitives, and cross-module seams
+- `/server/AGENTS.md` must define how server docs describe endpoints, request flow, services, filesystems, permissions, indexes, and mutation side effects
+- `/commands/AGENTS.md` must define how command-family docs describe CLI surface, arguments, outputs, state mutations, and shared-helper boundaries
+- `/packaging/AGENTS.md` must define how host or platform docs describe preload bridges, startup flow, packaging scripts, assets, and platform-specific behavior
+
+Child-doc obligations:
+
+- every parent doc that has child `AGENTS.md` files must list them explicitly
+- every parent doc must state what belongs in the parent versus the child docs
+- every parent doc must define the section pattern its child docs should follow
+- when a contract crosses parent and child scopes, update both docs in the same session
+
 ## Documentation Ownership
 
 Core ownership:
@@ -143,6 +185,7 @@ Documentation rules:
 - keep app-specific details in app docs, not in the root file
 - keep server-specific details in server docs, not in the root file
 - use local docs for implementation-specific module behavior instead of bloating the core docs
+- when a local doc later gains child docs, add a `Documentation Hierarchy` section there before the child docs multiply
 - when a code change adds a new stable seam, subsystem, ownership boundary, or workflow, document it where it belongs before finishing
 - when code reveals undocumented architecture, document it
 - keep all `AGENTS.md` files explicit, current, and high signal

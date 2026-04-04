@@ -10,6 +10,36 @@ This is one of the five core docs. It owns the command-tree contract for `comman
 
 Documentation is top priority for this area. After any change to command discovery, command behavior, command help, or the command tree under `commands/`, update this file in the same session before finishing.
 
+## Documentation Hierarchy
+
+`/commands/AGENTS.md` stays the command-tree doc until a command family or helper subtree grows its own `AGENTS.md`.
+
+If that happens:
+
+- the parent command doc should own the command-family surface and cross-command conventions
+- the child doc should own the concrete subcommand or helper contract
+- update both docs when the surfaced CLI behavior and the helper boundary change together
+
+## How To Document Command Child Docs
+
+Future command-family docs should keep the same section spine:
+
+- `Purpose`
+- `Ownership`
+- `Command Surface` or `Helper Contract`
+- `Arguments, Output, And State Changes`
+- `Development Guidance`
+
+Required coverage:
+
+- which command files or helpers are owned
+- which subcommands, flags, environment variables, or schema entries are part of the public CLI contract
+- what the command prints and what files or runtime state it mutates
+- which shared server or helper libraries it must delegate to instead of re-implementing logic
+- which help text and examples must stay synchronized with the code
+
+A child doc is justified only when a command family has enough behavior or helper ownership that this file would otherwise become vague or bloated.
+
 ## Contract
 
 Each command module should export:
@@ -42,13 +72,27 @@ Non-command command-tree assets should stay out of `commands/*.js`. Shared helpe
 `commands/params.yaml` is the command-owned schema for CLI-managed server config parameters. Each top-level key is the `.env` variable name, and each entry currently uses:
 
 - `description`
-- `type` with `text` or `number`
+- `type` with `boolean`, `text`, or `number`
 - `allowed` as an inline list
+- `default` for the server-side runtime fallback when no launch arg, stored `.env` value, or process env var is set
+- `frontend_exposed` to opt a parameter into page-shell meta-tag exposure for the frontend
 
 Parameter validation rules:
 
+- `boolean` entries accept `true` or `false`
 - `text` entries may use exact values, glob-style patterns with `*` and `?`, or `/regex/` patterns in `allowed`
 - `number` entries may use exact numeric values or inclusive ranges such as `1024..65535` in `allowed`
+- a parameter may intentionally allow the empty string, and `set` must preserve that instead of forcing a manual `.env` edit
+
+Runtime resolution rules:
+
+- `get` and `set` still manage the project `.env` file only
+- `node space serve` accepts launch-time `PARAM=VALUE` overrides for any parameter defined in `commands/params.yaml`
+- launch arguments win over stored `.env` parameter values
+- stored `.env` parameter values win over process environment variables
+- process environment variables win over the schema `default`
+- only parameters with `frontend_exposed: true` are injected into page shells for frontend reads
+- `CUSTOMWARE_PATH`, when non-empty, is the parent directory that contains backend `L1/` and `L2/` writable roots
 
 The `help` export should be complete enough that `node space help <command>` is useful without reading the code. Prefer accurate usage lines, concrete descriptions, explicit argument descriptions when position matters, and examples when the command shape is not obvious.
 
@@ -68,7 +112,7 @@ The `help` export should be complete enough that `node space help <command>` is 
 There are two kinds of commands in this tree:
 
 - operational commands that control or inspect the local runtime: `serve`, `help`, `get`, `set`, `version`, `update`
-- state-management commands that edit layered runtime data under `app/`: `user` and `group`
+- state-management commands that edit layered runtime data under the logical app tree: `user` and `group`
 
 The preferred shape is a small number of readable top-level commands with explicit subcommands. Do not add one file per tiny action when a subcommand fits the existing command family cleanly.
 
@@ -83,8 +127,9 @@ Purpose:
 - expose `/api/...` endpoints
 - keep local infrastructure available for browser-first flows
 
-Current flags:
+Current launch overrides:
 
+- `PARAM=VALUE` for any parameter defined in `commands/params.yaml`
 - `--host <host>`
 - `--port <port>`
 
@@ -92,10 +137,12 @@ Current usage:
 
 - `node space serve`
 - `node space serve --host 0.0.0.0 --port 3000`
+- `node space serve PORT=3100 ALLOW_GUEST_USERS=false`
 
 Guidance:
 
 - keep `serve` focused on process startup and bootstrap overrides
+- keep `--host` and `--port` as aliases of the shared `HOST` and `PORT` runtime parameters
 - do not move application behavior into the command when it belongs in `server/`
 
 ### `help`
@@ -228,14 +275,15 @@ Current usage:
 
 Current behavior:
 
-- `create` creates `app/L2/<username>/`
-- `create` writes metadata to `app/L2/<username>/user.yaml`
-- `create` writes the password verifier to `app/L2/<username>/meta/password.json`
-- `create` initializes sessions in `app/L2/<username>/meta/logins.json`
+- `create` creates the logical `L2/<username>/` root
+- `create` writes metadata to `L2/<username>/user.yaml`
+- `create` writes the password verifier to `L2/<username>/meta/password.json`
+- `create` initializes sessions in `L2/<username>/meta/logins.json`
 - `create` ensures a `mod/` folder exists for the user
 - `password` rewrites the verifier and clears active sessions
 - `--full-name` sets `full_name` in `user.yaml`; if omitted it defaults to the user id
 - `--force` replaces the full user directory during create
+- when `CUSTOMWARE_PATH` is configured, those logical `L2/...` writes land under `CUSTOMWARE_PATH/L2/...`
 
 Examples:
 
@@ -255,7 +303,7 @@ Guidance:
 Purpose:
 
 - create and maintain writable `L1` groups
-- edit `app/L1/<group-id>/group.yaml` membership and manager relationships
+- edit logical `L1/<group-id>/group.yaml` membership and manager relationships
 - do not write `L0`; firmware groups are developer-maintained outside the CLI
 
 Current subcommands:
@@ -272,12 +320,13 @@ Current usage:
 
 Current behavior:
 
-- `create` creates `app/L1/<group-id>/` and initializes `group.yaml`
+- `create` creates the logical `L1/<group-id>/` root and initializes `group.yaml`
 - `create` ensures a `mod/` folder exists for the group
 - `add` and `remove` work with both user membership and group inclusion
 - `--manager` switches the target list from included members to managing members
 - user targets affect `included_users` or `managing_users`
 - group targets affect `included_groups` or `managing_groups`
+- when `CUSTOMWARE_PATH` is configured, those logical `L1/...` writes land under `CUSTOMWARE_PATH/L1/...`
 
 Parameter meanings:
 

@@ -8,11 +8,47 @@ It mounts into `/admin`, keeps admin UI assets on `L0`, provides the split admin
 
 Documentation is top priority for this module. After any change under `_core/admin/`, update this file, any affected deeper admin docs, and any affected parent docs in the same session.
 
+## Documentation Hierarchy
+
+`_core/admin/AGENTS.md` owns the admin-wide shell, tabs, shared admin runtime, and the map of deeper admin surfaces.
+
+Current deeper admin docs:
+
+- `app/L0/_all/mod/_core/admin/views/agent/AGENTS.md`
+- `app/L0/_all/mod/_core/admin/views/files/AGENTS.md`
+- `app/L0/_all/mod/_core/admin/views/modules/AGENTS.md`
+
+Update rules:
+
+- update the nearest view doc when that view's files, API usage, state model, or CSS contract changes
+- update this file when the admin shell, tabs, shared admin runtime, skill loading, or view ownership map changes
+- add new deeper docs only for sub-areas with independent runtime, UI, or API contracts
+
+## How To Document Admin Child Docs
+
+Admin view docs should follow one consistent shape:
+
+- `Purpose`
+- `Ownership`
+- `Runtime And API Contract` or equivalent concrete contract sections
+- `UI And State Contract`
+- `Development Guidance`
+
+Required coverage for an admin view:
+
+- which HTML, JS, store, CSS, and asset files make up the view
+- which admin or shared APIs it calls and what app paths or backend endpoints it reads or mutates
+- which state is transient, persisted in session or local storage, or derived from server responses
+- which shell hooks, tabs, iframes, dialogs, or quick actions connect it to the broader admin surface
+- which styling is local versus inherited from `_core/visual`, `_core/framework`, or admin shell assets
+
+This file keeps shell-wide behavior and skill loading. Child view docs own the concrete UI, store, and API contracts of each view.
+
 ## Ownership
 
 This module owns:
 
-- `ext/page/admin/body/start/admin-shell.html`: thin adapter that mounts the admin shell into `server/pages/admin.html`
+- `ext/html/page/admin/body/start/admin-shell.html`: thin adapter that mounts the admin shell into `server/pages/admin.html`
 - `views/shell/`: split shell layout, tab state, and iframe orchestration
 - `views/dashboard/`: dashboard and launch surface inside the admin pane
 - `views/agent/`: admin-side agent surface
@@ -39,12 +75,6 @@ Current shell responsibilities:
 `/admin` runs with `maxLayer=0`, so all module and extension fetches for the admin UI stay firmware-backed even though app-file APIs still work across normal readable or writable layers.
 
 ## Admin Sub-Areas
-
-Detailed docs for deeper admin surfaces live here:
-
-- `app/L0/_all/mod/_core/admin/views/agent/AGENTS.md`
-- `app/L0/_all/mod/_core/admin/views/files/AGENTS.md`
-- `app/L0/_all/mod/_core/admin/views/modules/AGENTS.md`
 
 High-level ownership:
 

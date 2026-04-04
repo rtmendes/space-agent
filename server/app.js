@@ -4,15 +4,16 @@ import {
   API_DIR,
   APP_DIR,
   ASSET_DIR,
-  DEFAULT_HOST,
-  DEFAULT_PORT,
   FILE_WATCH_CONFIG_PATH,
   PAGES_DIR,
   PROJECT_ROOT
 } from "./config.js";
 import { loadApiRegistry } from "./lib/api/registry.js";
 import { createAuthService } from "./lib/auth/service.js";
+import { ensureCustomwareDirectories } from "./lib/customware/layout.js";
 import { createWatchdog } from "./lib/file_watch/watchdog.js";
+import { loadProjectEnvFiles } from "./lib/utils/env_files.js";
+import { createRuntimeParams } from "./lib/utils/runtime_params.js";
 import { sendJson } from "./router/responses.js";
 import { createRequestHandler } from "./router/router.js";
 
@@ -27,19 +28,47 @@ function resolveBrowserHost(host) {
 async function createAgentServer(overrides = {}) {
   const apiDir = overrides.apiDir || API_DIR;
   const appDir = overrides.appDir || APP_DIR;
-  const host = overrides.host || DEFAULT_HOST;
-  const browserHost = overrides.browserHost || resolveBrowserHost(host);
-  const port = Number(overrides.port || DEFAULT_PORT);
   const assetDir = overrides.assetDir || ASSET_DIR;
   const pagesDir = overrides.pagesDir || PAGES_DIR;
   const projectRoot = overrides.projectRoot || PROJECT_ROOT;
+  const runtimeParamEnv = overrides.runtimeParamEnv || { ...process.env };
+  const legacyRuntimeParamOverrides = {};
+
+  if (overrides.host !== undefined) {
+    legacyRuntimeParamOverrides.HOST = String(overrides.host);
+  }
+
+  if (overrides.port !== undefined) {
+    legacyRuntimeParamOverrides.PORT = String(overrides.port);
+  }
+
+  const runtimeParamOverrides = {
+    ...legacyRuntimeParamOverrides,
+    ...(overrides.runtimeParamOverrides || {})
+  };
+
+  loadProjectEnvFiles(projectRoot);
+
+  const runtimeParams =
+    overrides.runtimeParams ||
+    await createRuntimeParams(projectRoot, {
+      env: runtimeParamEnv,
+      overrides: runtimeParamOverrides
+    });
+  const host = runtimeParams.get("HOST", "0.0.0.0");
+  const browserHost = overrides.browserHost || resolveBrowserHost(host);
+  const port = Number(runtimeParams.get("PORT", 3000));
+
+  ensureCustomwareDirectories(projectRoot, runtimeParams);
+
   const watchdog =
     overrides.watchdog ||
     createWatchdog({
       configPath: overrides.fileWatchConfigPath || FILE_WATCH_CONFIG_PATH,
-      projectRoot
+      projectRoot,
+      runtimeParams
     });
-  const auth = overrides.auth || createAuthService({ projectRoot, watchdog });
+  const auth = overrides.auth || createAuthService({ projectRoot, runtimeParams, watchdog });
 
   const apiRegistry = await loadApiRegistry(apiDir);
   const requestHandler = createRequestHandler({
@@ -49,6 +78,7 @@ async function createAgentServer(overrides = {}) {
     auth,
     assetDir,
     pagesDir,
+    runtimeParams,
     watchdog,
     host,
     port,
@@ -81,6 +111,7 @@ async function createAgentServer(overrides = {}) {
     pagesDir,
     auth,
     watchdog,
+    runtimeParams,
     server,
     browserUrl: `http://${browserHost}:${port}`,
     async listen() {
@@ -101,6 +132,7 @@ async function createAgentServer(overrides = {}) {
             pagesDir,
             auth,
             watchdog,
+            runtimeParams,
             server,
             browserUrl: `http://${browserHost}:${port}`
           });

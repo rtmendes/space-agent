@@ -1,7 +1,10 @@
 import fs from "node:fs";
 import path from "node:path";
 
-import { normalizeEntityId } from "./layout.js";
+import {
+  normalizeEntityId,
+  resolveProjectAbsolutePath
+} from "./layout.js";
 import { parseSimpleYaml, serializeSimpleYaml } from "../utils/yaml_lite.js";
 
 const GROUP_WRITE_LAYER = "L1";
@@ -22,18 +25,22 @@ function getNormalizedGroupConfig(config = {}) {
   };
 }
 
-function buildGroupConfigAbsolutePath(projectRoot, groupId) {
+function buildGroupConfigAbsolutePath(projectRoot, groupId, runtimeParams = null) {
   const normalizedGroupId = normalizeEntityId(groupId);
 
   if (!normalizedGroupId) {
     throw new Error(`Invalid group id: ${String(groupId || "")}`);
   }
 
-  return path.join(projectRoot, "app", GROUP_WRITE_LAYER, normalizedGroupId, "group.yaml");
+  return resolveProjectAbsolutePath(
+    projectRoot,
+    `/app/${GROUP_WRITE_LAYER}/${normalizedGroupId}/group.yaml`,
+    runtimeParams
+  );
 }
 
-function readGroupConfig(projectRoot, groupId) {
-  const filePath = buildGroupConfigAbsolutePath(projectRoot, groupId);
+function readGroupConfig(projectRoot, groupId, runtimeParams = null) {
+  const filePath = buildGroupConfigAbsolutePath(projectRoot, groupId, runtimeParams);
 
   try {
     return parseSimpleYaml(fs.readFileSync(filePath, "utf8"));
@@ -46,8 +53,8 @@ function readGroupConfig(projectRoot, groupId) {
   }
 }
 
-function writeGroupConfig(projectRoot, groupId, config) {
-  const filePath = buildGroupConfigAbsolutePath(projectRoot, groupId);
+function writeGroupConfig(projectRoot, groupId, config, runtimeParams = null) {
+  const filePath = buildGroupConfigAbsolutePath(projectRoot, groupId, runtimeParams);
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
   fs.writeFileSync(
     filePath,
@@ -58,7 +65,8 @@ function writeGroupConfig(projectRoot, groupId, config) {
 }
 
 function createGroup(projectRoot, groupId, options = {}) {
-  const groupDir = path.dirname(buildGroupConfigAbsolutePath(projectRoot, groupId));
+  const runtimeParams = options.runtimeParams || null;
+  const groupDir = path.dirname(buildGroupConfigAbsolutePath(projectRoot, groupId, runtimeParams));
 
   if (fs.existsSync(groupDir)) {
     if (!options.force) {
@@ -69,7 +77,7 @@ function createGroup(projectRoot, groupId, options = {}) {
   }
 
   fs.mkdirSync(path.join(groupDir, "mod"), { recursive: true });
-  writeGroupConfig(projectRoot, groupId, {});
+  writeGroupConfig(projectRoot, groupId, {}, runtimeParams);
 
   return {
     groupDir,
@@ -79,7 +87,8 @@ function createGroup(projectRoot, groupId, options = {}) {
 }
 
 function addGroupEntry(projectRoot, groupId, entryType, entryId, options = {}) {
-  const config = readGroupConfig(projectRoot, groupId);
+  const runtimeParams = options.runtimeParams || null;
+  const config = readGroupConfig(projectRoot, groupId, runtimeParams);
   const normalizedEntryType = String(entryType || "").trim().toLowerCase();
   const key =
     normalizedEntryType === "group"
@@ -99,12 +108,13 @@ function addGroupEntry(projectRoot, groupId, entryType, entryId, options = {}) {
   return writeGroupConfig(projectRoot, groupId, {
     ...config,
     [key]: normalizeStringList([...(config[key] || []), entryId])
-  });
+  }, runtimeParams);
 }
 
 function removeGroupEntry(projectRoot, groupId, entryType, entryId, options = {}) {
   const normalizedEntryId = normalizeEntityId(entryId);
-  const config = readGroupConfig(projectRoot, groupId);
+  const runtimeParams = options.runtimeParams || null;
+  const config = readGroupConfig(projectRoot, groupId, runtimeParams);
   const normalizedEntryType = String(entryType || "").trim().toLowerCase();
   const key =
     normalizedEntryType === "group"
@@ -128,7 +138,7 @@ function removeGroupEntry(projectRoot, groupId, entryType, entryId, options = {}
   return writeGroupConfig(projectRoot, groupId, {
     ...config,
     [key]: nextValues
-  });
+  }, runtimeParams);
 }
 
 export {

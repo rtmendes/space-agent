@@ -41,6 +41,7 @@ function handleFilePaths(context) {
   try {
     return listAppPathsByPatterns({
       patterns: readPatterns(context),
+      runtimeParams: context.runtimeParams,
       username: context.user?.username,
       watchdog: context.watchdog
     });

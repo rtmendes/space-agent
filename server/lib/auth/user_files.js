@@ -1,7 +1,9 @@
 import fs from "node:fs";
-import path from "node:path";
 
-import { normalizeEntityId } from "../customware/layout.js";
+import {
+  normalizeEntityId,
+  resolveProjectAbsolutePath
+} from "../customware/layout.js";
 import { parseSimpleYaml, serializeSimpleYaml } from "../utils/yaml_lite.js";
 
 const USER_META_DIRNAME = "meta";
@@ -24,8 +26,12 @@ function buildUserProjectPath(username, relativePath = "") {
   return suffix ? `/app/L2/${normalizedUsername}/${suffix}` : `/app/L2/${normalizedUsername}/`;
 }
 
-function buildUserAbsolutePath(projectRoot, username, relativePath = "") {
-  return path.join(projectRoot, buildUserProjectPath(username, relativePath).slice(1));
+function buildUserAbsolutePath(projectRoot, username, relativePath = "", runtimeParams = null) {
+  return resolveProjectAbsolutePath(
+    projectRoot,
+    buildUserProjectPath(username, relativePath),
+    runtimeParams
+  );
 }
 
 function valueToText(value) {
@@ -59,63 +65,71 @@ function readJsonObject(filePath, fallback = {}) {
   }
 }
 
-function readUserConfig(projectRoot, username) {
-  const filePath = buildUserAbsolutePath(projectRoot, username, USER_CONFIG_FILENAME);
+function readUserConfig(projectRoot, username, runtimeParams = null) {
+  const filePath = buildUserAbsolutePath(projectRoot, username, USER_CONFIG_FILENAME, runtimeParams);
   const sourceText = readTextFile(filePath, "");
   return sourceText ? parseSimpleYaml(sourceText) : {};
 }
 
-function writeUserConfig(projectRoot, username, config) {
-  const filePath = buildUserAbsolutePath(projectRoot, username, USER_CONFIG_FILENAME);
-  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+function writeUserConfig(projectRoot, username, config, runtimeParams = null) {
+  const filePath = buildUserAbsolutePath(projectRoot, username, USER_CONFIG_FILENAME, runtimeParams);
+  fs.mkdirSync(buildUserAbsolutePath(projectRoot, username, "", runtimeParams), { recursive: true });
   fs.writeFileSync(filePath, serializeSimpleYaml(config), "utf8");
   return filePath;
 }
 
-function readUserPasswordVerifier(projectRoot, username) {
+function readUserPasswordVerifier(projectRoot, username, runtimeParams = null) {
   const filePath = buildUserAbsolutePath(
     projectRoot,
     username,
-    `${USER_META_DIRNAME}/${USER_PASSWORD_FILENAME}`
+    `${USER_META_DIRNAME}/${USER_PASSWORD_FILENAME}`,
+    runtimeParams
   );
   return readJsonObject(filePath, {});
 }
 
-function writeUserPasswordVerifier(projectRoot, username, verifier) {
+function writeUserPasswordVerifier(projectRoot, username, verifier, runtimeParams = null) {
   const filePath = buildUserAbsolutePath(
     projectRoot,
     username,
-    `${USER_META_DIRNAME}/${USER_PASSWORD_FILENAME}`
+    `${USER_META_DIRNAME}/${USER_PASSWORD_FILENAME}`,
+    runtimeParams
   );
-  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  fs.mkdirSync(buildUserAbsolutePath(projectRoot, username, USER_META_DIRNAME, runtimeParams), {
+    recursive: true
+  });
   fs.writeFileSync(filePath, `${JSON.stringify(verifier || {}, null, 2)}\n`, "utf8");
   return filePath;
 }
 
-function readUserLogins(projectRoot, username) {
+function readUserLogins(projectRoot, username, runtimeParams = null) {
   const filePath = buildUserAbsolutePath(
     projectRoot,
     username,
-    `${USER_META_DIRNAME}/${USER_LOGINS_FILENAME}`
+    `${USER_META_DIRNAME}/${USER_LOGINS_FILENAME}`,
+    runtimeParams
   );
   return readJsonObject(filePath, {});
 }
 
-function writeUserLogins(projectRoot, username, logins) {
+function writeUserLogins(projectRoot, username, logins, runtimeParams = null) {
   const filePath = buildUserAbsolutePath(
     projectRoot,
     username,
-    `${USER_META_DIRNAME}/${USER_LOGINS_FILENAME}`
+    `${USER_META_DIRNAME}/${USER_LOGINS_FILENAME}`,
+    runtimeParams
   );
-  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  fs.mkdirSync(buildUserAbsolutePath(projectRoot, username, USER_META_DIRNAME, runtimeParams), {
+    recursive: true
+  });
   fs.writeFileSync(filePath, `${JSON.stringify(logins || {}, null, 2)}\n`, "utf8");
   return filePath;
 }
 
-function ensureUserStructure(projectRoot, username) {
-  const userDir = buildUserAbsolutePath(projectRoot, username);
-  const metaDir = buildUserAbsolutePath(projectRoot, username, USER_META_DIRNAME);
-  const modDir = buildUserAbsolutePath(projectRoot, username, "mod");
+function ensureUserStructure(projectRoot, username, runtimeParams = null) {
+  const userDir = buildUserAbsolutePath(projectRoot, username, "", runtimeParams);
+  const metaDir = buildUserAbsolutePath(projectRoot, username, USER_META_DIRNAME, runtimeParams);
+  const modDir = buildUserAbsolutePath(projectRoot, username, "mod", runtimeParams);
   fs.mkdirSync(modDir, { recursive: true });
   fs.mkdirSync(metaDir, { recursive: true });
   return {

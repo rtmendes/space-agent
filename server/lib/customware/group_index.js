@@ -1,8 +1,10 @@
 import fs from "node:fs";
-import path from "node:path";
-
 import { parseSimpleYaml } from "../utils/yaml_lite.js";
-import { normalizeEntityId, parseGroupConfigProjectPath } from "./layout.js";
+import {
+  normalizeEntityId,
+  parseGroupConfigProjectPath,
+  resolveProjectAbsolutePath
+} from "./layout.js";
 
 function createEmptyGroupRecord(groupId) {
   return {
@@ -102,7 +104,7 @@ function buildGroupIndexSnapshot(context) {
     let parsedConfig = {};
 
     try {
-      const absolutePath = path.join(projectRoot, projectPath.slice(1));
+      const absolutePath = resolveProjectAbsolutePath(projectRoot, projectPath, context.runtimeParams);
       parsedConfig = parseSimpleYaml(fs.readFileSync(absolutePath, "utf8"));
     } catch (error) {
       errors.push({

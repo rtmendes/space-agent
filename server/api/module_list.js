@@ -24,6 +24,7 @@ export async function get(context) {
       area: readListArea(context),
       ownerId: readListOwnerId(context),
       projectRoot: context.projectRoot,
+      runtimeParams: context.runtimeParams,
       search: readListSearch(context),
       username: context.user?.username,
       watchdog: context.watchdog

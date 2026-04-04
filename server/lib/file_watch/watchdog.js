@@ -2,6 +2,11 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
+import {
+  listProjectScanRoots,
+  resolveProjectAbsolutePath,
+  resolveProjectPathFromAbsolute
+} from "../customware/layout.js";
 import { globToRegExp, normalizePathSegment } from "../utils/app_files.js";
 import { parseSimpleYaml } from "../utils/yaml_lite.js";
 
@@ -14,6 +19,7 @@ export class WatchdogHandler {
     this.name = String(options.name || "");
     this.patterns = Array.isArray(options.patterns) ? [...options.patterns] : [];
     this.projectRoot = String(options.projectRoot || "");
+    this.runtimeParams = options.runtimeParams || null;
     this.state = this.createInitialState();
   }
 
@@ -81,7 +87,7 @@ export function normalizeProjectPath(input, options = {}) {
 }
 
 export function toProjectPath(projectRoot, absolutePath, options = {}) {
-  return normalizeProjectPath(path.relative(projectRoot, absolutePath), options);
+  return resolveProjectPathFromAbsolute(projectRoot, absolutePath, options);
 }
 
 function getProjectPathLookupCandidates(projectPath) {
@@ -180,8 +186,8 @@ function getFixedPatternPrefix(pattern) {
   return prefixSegments.join("/");
 }
 
-function getExistingWatchBase(projectRoot, relativePath) {
-  let currentPath = relativePath ? path.join(projectRoot, relativePath) : projectRoot;
+function getExistingWatchBase(absolutePath) {
+  let currentPath = path.resolve(String(absolutePath || ""));
 
   while (true) {
     const stats = tryStat(currentPath);
@@ -189,8 +195,8 @@ function getExistingWatchBase(projectRoot, relativePath) {
       return currentPath;
     }
 
-    if (currentPath === projectRoot) {
-      return projectRoot;
+    if (currentPath === path.dirname(currentPath)) {
+      return currentPath;
     }
 
     currentPath = path.dirname(currentPath);
@@ -261,13 +267,16 @@ function matchesCompiledPatterns(compiledPatterns, projectPath) {
   return compiledPatterns.some(({ matcher }) => candidates.some((candidate) => candidate && matcher.test(candidate)));
 }
 
-function toAbsolutePath(projectRoot, projectPath) {
-  return path.join(projectRoot, stripTrailingSlash(String(projectPath || "").slice(1)));
+function toAbsolutePath(projectRoot, projectPath, runtimeParams) {
+  return resolveProjectAbsolutePath(projectRoot, projectPath, runtimeParams);
 }
 
-function inferDeletedProjectPath(projectRoot, absolutePath, currentPathIndex) {
-  const fileProjectPath = toProjectPath(projectRoot, absolutePath);
-  const directoryProjectPath = toProjectPath(projectRoot, absolutePath, { isDirectory: true });
+function inferDeletedProjectPath(projectRoot, absolutePath, currentPathIndex, runtimeParams) {
+  const fileProjectPath = toProjectPath(projectRoot, absolutePath, { runtimeParams });
+  const directoryProjectPath = toProjectPath(projectRoot, absolutePath, {
+    isDirectory: true,
+    runtimeParams
+  });
 
   if (directoryProjectPath && currentPathIndex[directoryProjectPath]) {
     return {
@@ -282,7 +291,7 @@ function inferDeletedProjectPath(projectRoot, absolutePath, currentPathIndex) {
   };
 }
 
-async function loadConfiguredHandlers(handlerDir, handlerConfigs, projectRoot) {
+async function loadConfiguredHandlers(handlerDir, handlerConfigs, projectRoot, runtimeParams) {
   const configuredHandlers = [];
 
   for (const handlerConfig of handlerConfigs) {
@@ -315,7 +324,8 @@ async function loadConfiguredHandlers(handlerDir, handlerConfigs, projectRoot) {
       instance: new HandlerClass({
         name: handlerConfig.name,
         patterns: [...handlerConfig.patterns],
-        projectRoot
+        projectRoot,
+        runtimeParams
       }),
       name: handlerConfig.name,
       patterns: [...handlerConfig.patterns]
@@ -327,6 +337,7 @@ async function loadConfiguredHandlers(handlerDir, handlerConfigs, projectRoot) {
 
 export function createWatchdog(options = {}) {
   const projectRoot = path.resolve(options.projectRoot || path.join(CURRENT_DIR, "..", "..", ".."));
+  const runtimeParams = options.runtimeParams || null;
   const configPath = path.resolve(options.configPath || path.join(CURRENT_DIR, "config.yaml"));
   const handlerDir = path.resolve(options.handlerDir || path.join(CURRENT_DIR, "handlers"));
   const reconcileIntervalMs = Number(options.reconcileIntervalMs ?? RECONCILE_INTERVAL_MS);
@@ -369,7 +380,10 @@ export function createWatchdog(options = {}) {
   }
 
   function upsertCurrentEntry(absolutePath, entryOptions = {}) {
-    const projectPath = toProjectPath(projectRoot, absolutePath, entryOptions);
+    const projectPath = toProjectPath(projectRoot, absolutePath, {
+      ...entryOptions,
+      runtimeParams
+    });
 
     if (!projectPath) {
       return false;
@@ -393,7 +407,10 @@ export function createWatchdog(options = {}) {
 
     for (const { pattern } of compiledPatterns) {
       const fixedPrefix = getFixedPatternPrefix(pattern);
-      scanRoots.add(fixedPrefix ? path.join(projectRoot, fixedPrefix) : projectRoot);
+
+      for (const scanRoot of listProjectScanRoots(projectRoot, fixedPrefix, runtimeParams)) {
+        scanRoots.add(scanRoot);
+      }
     }
 
     for (const scanRoot of scanRoots) {
@@ -401,7 +418,10 @@ export function createWatchdog(options = {}) {
       walkDirectories(scanRoot, directories);
 
       directories.forEach((directoryPath) => {
-        const projectPath = toProjectPath(projectRoot, directoryPath, { isDirectory: true });
+        const projectPath = toProjectPath(projectRoot, directoryPath, {
+          isDirectory: true,
+          runtimeParams
+        });
 
         if (projectPath && matchesCompiledPatterns(compiledPatterns, projectPath)) {
           nextPathIndex[projectPath] = true;
@@ -409,7 +429,9 @@ export function createWatchdog(options = {}) {
       });
 
       walkFiles(scanRoot, (filePath) => {
-        const projectPath = toProjectPath(projectRoot, filePath);
+        const projectPath = toProjectPath(projectRoot, filePath, {
+          runtimeParams
+        });
 
         if (projectPath && matchesCompiledPatterns(compiledPatterns, projectPath)) {
           nextPathIndex[projectPath] = true;
@@ -422,7 +444,7 @@ export function createWatchdog(options = {}) {
 
   function createCurrentChangeFromProjectPath(projectPath) {
     return {
-      absolutePath: toAbsolutePath(projectRoot, projectPath),
+      absolutePath: toAbsolutePath(projectRoot, projectPath, runtimeParams),
       exists: true,
       isDirectory: projectPath.endsWith("/"),
       kind: "upsert",
@@ -439,7 +461,10 @@ export function createWatchdog(options = {}) {
         exists: true,
         isDirectory: true,
         kind: "upsert",
-        projectPath: toProjectPath(projectRoot, absolutePath, { isDirectory: true })
+        projectPath: toProjectPath(projectRoot, absolutePath, {
+          isDirectory: true,
+          runtimeParams
+        })
       };
     }
 
@@ -449,11 +474,18 @@ export function createWatchdog(options = {}) {
         exists: true,
         isDirectory: false,
         kind: "upsert",
-        projectPath: toProjectPath(projectRoot, absolutePath)
+        projectPath: toProjectPath(projectRoot, absolutePath, {
+          runtimeParams
+        })
       };
     }
 
-    const deletedPath = inferDeletedProjectPath(projectRoot, absolutePath, currentPathIndex);
+    const deletedPath = inferDeletedProjectPath(
+      projectRoot,
+      absolutePath,
+      currentPathIndex,
+      runtimeParams
+    );
 
     return {
       absolutePath,
@@ -485,7 +517,8 @@ export function createWatchdog(options = {}) {
       },
       handlerName: configuredHandler.name,
       handlerPatterns: [...configuredHandler.patterns],
-      projectRoot
+      projectRoot,
+      runtimeParams
     };
   }
 
@@ -609,13 +642,21 @@ export function createWatchdog(options = {}) {
     const stats = tryStat(targetPath);
 
     if (!stats) {
-      const deletedPath = inferDeletedProjectPath(projectRoot, targetPath, currentPathIndex);
+      const deletedPath = inferDeletedProjectPath(
+        projectRoot,
+        targetPath,
+        currentPathIndex,
+        runtimeParams
+      );
       removeDirectoryWatchersUnder(targetPath);
       return removeCurrentEntries(deletedPath.projectPath);
     }
 
     let changed = removeCurrentEntries(
-      toProjectPath(projectRoot, targetPath, { isDirectory: stats.isDirectory() })
+      toProjectPath(projectRoot, targetPath, {
+        isDirectory: stats.isDirectory(),
+        runtimeParams
+      })
     );
 
     if (stats.isDirectory()) {
@@ -649,7 +690,12 @@ export function createWatchdog(options = {}) {
 
     try {
       const nextConfig = loadWatchdogConfig(configPath);
-      configuredHandlers = await loadConfiguredHandlers(handlerDir, nextConfig.handlers, projectRoot);
+      configuredHandlers = await loadConfiguredHandlers(
+        handlerDir,
+        nextConfig.handlers,
+        projectRoot,
+        runtimeParams
+      );
       compiledPatterns = createCompiledPatterns(nextConfig.patterns);
       lastConfigSignature = getStatsSignature(tryStat(configPath));
       rebuildCurrentPathIndex();
@@ -658,8 +704,11 @@ export function createWatchdog(options = {}) {
 
       for (const { pattern } of compiledPatterns) {
         const fixedPrefix = getFixedPatternPrefix(pattern);
-        const baseDirectory = getExistingWatchBase(projectRoot, fixedPrefix);
-        walkDirectories(baseDirectory, nextDirectories);
+
+        for (const scanRoot of listProjectScanRoots(projectRoot, fixedPrefix, runtimeParams)) {
+          const baseDirectory = getExistingWatchBase(scanRoot);
+          walkDirectories(baseDirectory, nextDirectories);
+        }
       }
 
       closeRemovedWatchers(nextDirectories);

@@ -14,6 +14,7 @@ This module owns:
 
 - `js/initFw.js`: shared frontend bootstrap entry for framework-backed pages
 - `js/runtime.js`: runtime installation onto `globalThis.space`
+- `js/server-config.js`: injected page-meta parsing for frontend-exposed backend runtime parameters
 - `js/extensions.js`: `space.extend`, HTML extension loading, JS hook loading, lookup caching, and batching
 - `js/moduleResolution.js`: propagation of `maxLayer` into framework-managed module and extension requests
 - `js/components.js`: `<x-component>` loading, recursive component imports, and `xAttrs(...)`
@@ -38,12 +39,17 @@ Current boot order:
 `initializeRuntime(...)` currently publishes:
 
 - `space.api`
+- `space.config`
 - `space.fw.createStore`
 - `space.utils.markdown.parseDocument`
 - `space.utils.yaml.parse`, `parseScalar`, and `serialize`
 - `space.proxy`
 - `space.download`
 - `space.fetchExternal(...)`
+
+Current API helper contract:
+
+- `space.api.userSelfInfo()` is the canonical frontend snapshot for authenticated identity plus readable and writable logical app roots; frontend agents should use it before choosing where to store files or modules
 
 Rules:
 
@@ -57,7 +63,10 @@ Rules:
 
 Important contracts:
 
+- `<x-extension id="some/path">` resolves HTML adapters from `mod/<author>/<repo>/ext/html/some/path/*.html`
 - `space.extend(import.meta, ...)` requires a valid module ref and wraps standalone functions only
+- `space.extend(...)` and `callJsExtensions("some/path", ...)` resolve JS hook files from `mod/<author>/<repo>/ext/js/<extension-point>/*.js` or `*.mjs`
+- extension callers should name only the seam; the runtime chooses the `html/` or `js/` subfolder implicitly
 - wrapped functions expose `/start` and `/end` hook points and become async
 - uncached extension lookups are batched to one `/api/extensions_load` request per frame
 - empty extension lookups are cached as valid results
@@ -75,7 +84,8 @@ Current loader behavior:
 
 Rules:
 
-- keep extension files thin and mount real components from owning modules
+- keep `ext/html/` adapter files thin and mount real components from owning modules
+- keep `ext/js/` hook files focused on hook behavior instead of turning them into alternate feature entry points
 - keep components declarative and import feature stores explicitly
 - if a hook or component behavior becomes feature-specific, move it out of framework
 
@@ -85,4 +95,5 @@ Rules:
 - add shared runtime helpers here only when multiple modules genuinely need them
 - prefer explicit small runtime namespaces over loose globals
 - if a contract is used by only one module, keep it in that module instead of promoting it here too early
+- when bootstrap, runtime namespaces, extension loading, or component loading change, also update `app/L0/_all/mod/_core/onscreen_agent/ext/skills/development/` because the onscreen development skill mirrors this module's contract
 - when changing bootstrap, runtime namespaces, extension loading, or component loading, update `/app/AGENTS.md` in the same session

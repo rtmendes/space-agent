@@ -15,9 +15,12 @@
             'is-history-below': $store.onscreenAgent.isHistoryBelow,
             'is-right': $store.onscreenAgent.isDockedRight
           }"
+          x-ref="shell"
           x-cloak
           :style="$store.onscreenAgent.positionStyle"
-          x-init="$nextTick(() => $store.onscreenAgent.mount({ actionMenu: $refs.actionMenu, attachmentInput: $refs.attachmentInput, historyDialog: $refs.historyDialog, input: $refs.input, rawDialog: $refs.rawDialog, scroller: $refs.scroller, settingsDialog: $refs.settingsDialog, thread: $refs.thread }))"
+          @dragend.window="$store.onscreenAgent.resetAttachmentDragState()"
+          @drop.window="$store.onscreenAgent.resetAttachmentDragState()"
+          x-init="$nextTick(() => $store.onscreenAgent.mount({ actionMenu: $refs.actionMenu, avatar: $refs.avatar, attachmentInput: $refs.attachmentInput, historyDialog: $refs.historyDialog, input: $refs.input, panel: $refs.panel, rawDialog: $refs.rawDialog, scroller: $refs.scroller, settingsDialog: $refs.settingsDialog, shell: $refs.shell, thread: $refs.thread }))"
           x-destroy="$store.onscreenAgent.unmount()"
         >
           <div class="onscreen-agent-cluster">
@@ -42,6 +45,7 @@
             <button
               type="button"
               class="onscreen-agent-avatar-button"
+              x-ref="avatar"
               :aria-label="$store.onscreenAgent.avatarButtonLabel"
               :title="$store.onscreenAgent.avatarButtonLabel"
               @pointerdown="$store.onscreenAgent.handleAgentPointerDown($event)"
@@ -60,18 +64,38 @@
             </button>
 
             <div class="onscreen-agent-body">
-              <div
-                class="onscreen-agent-history"
-                x-ref="scroller"
-                x-show="$store.onscreenAgent.shouldShowHistory"
-                x-transition.opacity.duration.120ms
-              >
-                <div class="chat-thread" x-ref="thread" data-chat-thread @click="$store.onscreenAgent.handleThreadClick($event)"></div>
-              </div>
+              <template x-if="$store.onscreenAgent.isFullMode">
+                <div
+                  class="onscreen-agent-history-shell"
+                  :style="$store.onscreenAgent.historyStyle"
+                  x-ref="historyShell"
+                  x-show="$store.onscreenAgent.shouldShowHistory"
+                  x-transition.opacity.duration.120ms
+                  x-init="$nextTick(() => $store.onscreenAgent.mountHistory({ historyShell: $refs.historyShell, scroller: $refs.scroller, thread: $refs.thread }))"
+                  x-destroy="$store.onscreenAgent.unmountHistory()"
+                >
+                  <div
+                    class="onscreen-agent-history-resize-handle"
+                    title="Resize chat history"
+                    @pointerdown="$store.onscreenAgent.handleHistoryResizePointerDown($event)"
+                  ></div>
+                  <div class="onscreen-agent-history" x-ref="scroller">
+                    <div class="chat-thread" x-ref="thread" data-chat-thread @click="$store.onscreenAgent.handleThreadClick($event)"></div>
+                  </div>
+                </div>
+              </template>
 
               <div
                 class="onscreen-agent-panel"
-                :class="{ 'is-compact': $store.onscreenAgent.isCompactMode }"
+                :class="{
+                  'is-attachment-drag-active': $store.onscreenAgent.isAttachmentDragActive,
+                  'is-compact': $store.onscreenAgent.isCompactMode
+                }"
+                x-ref="panel"
+                @dragenter="$store.onscreenAgent.handleAttachmentDragEnter($event)"
+                @dragover="$store.onscreenAgent.handleAttachmentDragOver($event)"
+                @dragleave="$store.onscreenAgent.handleAttachmentDragLeave($event)"
+                @drop="$store.onscreenAgent.handleAttachmentDrop($event)"
               >
                 <form
                   class="onscreen-agent-composer"
@@ -215,7 +239,7 @@
           </div>
 
           <template x-teleport="body">
-            <div class="space-popover-layer" x-show="$store.onscreenAgent.isComposerActionMenuOpen" x-cloak>
+            <div class="space-popover-layer onscreen-agent-popover-layer" x-show="$store.onscreenAgent.isComposerActionMenuOpen" x-cloak>
               <div
                 id="onscreen-agent-composer-menu"
                 class="space-popover-panel onscreen-agent-action-menu"

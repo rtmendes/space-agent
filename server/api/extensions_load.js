@@ -106,6 +106,7 @@ export function post(context) {
       results: listResolvedExtensionRequestPathGroups({
         maxLayer,
         requests,
+        runtimeParams: context.runtimeParams,
         username,
         watchdog
       })
@@ -116,6 +117,7 @@ export function post(context) {
   const extensions = listResolvedExtensionRequestPaths({
     maxLayer,
     patterns,
+    runtimeParams: context.runtimeParams,
     username,
     watchdog
   });

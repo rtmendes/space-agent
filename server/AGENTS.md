@@ -30,13 +30,49 @@ Update rules:
 - update this file only when the server-wide contract, request flow, or ownership map changed
 - keep endpoint- or module-specific detail out of this file when a deeper doc can own it
 
+## How To Document Server Child Docs
+
+All server child docs at the same depth should share one spine.
+
+Default subsystem-doc section order:
+
+- `Purpose`
+- `Documentation Hierarchy` when deeper docs exist or are about to be added
+- `Ownership`
+- concrete contract sections for the area's stable behaviors
+- `Development Guidance`
+
+Required contract coverage for server docs:
+
+- discovery and ownership: which files are discovered dynamically, which files are canonical entry points, and which helper modules are authoritative
+- input and output contract: request methods, handler context, return shapes, function APIs, CLI-facing exports, and caller expectations
+- storage or path or index contract: logical paths, on-disk locations, watched sources, caches, indexes, and naming rules
+- security and permission contract: auth defaults, anonymous exceptions, read or write boundaries, and trust assumptions
+- mutation and refresh side effects: watchdog refreshes, cache invalidation, session revocation, derived-index rebuild expectations, and any ordering requirements
+- dependency boundaries: which shared helpers must be reused and which duplicate local implementations are forbidden
+
+Subsystem-type emphasis:
+
+- endpoint docs should enumerate families, auth mode, request body or query expectations, response shapes, and delegated helper owners
+- router and pages docs should document routing order, gating, shell assets, injected meta tags, public-versus-authenticated behavior, and mirrored assets
+- service or library docs should document canonical helpers, data files, path normalization, invariants, and who may call them
+- filesystem or index docs should document watched inputs, derived outputs, rebuild triggers, and how logical paths relate to disk paths
+
+Parent and child split rules:
+
+- `/server/AGENTS.md` owns cross-subtree request flow and shared infrastructure boundaries
+- subsystem docs own the precise contracts for one server area
+- if a subsystem later grows endpoint-family docs, page-specific docs, or handler docs, the parent subsystem doc must first define the template those deeper docs will use
+
 ## Responsibilities
 
 - serve the root HTML entry shells and public page-shell assets from `server/pages/`
-- resolve browser-delivered modules from the layered `app/L0`, `app/L1`, and `app/L2` customware model
+- resolve browser-delivered modules from the layered `app/L0`, `app/L1`, and `app/L2` customware model, with writable `L1` and `L2` optionally rooted under `CUSTOMWARE_PATH`
 - expose server API modules from `server/api/`
 - provide the outbound fetch proxy at `/api/proxy`
 - enforce auth, session, module, and app-file access boundaries
+- resolve runtime parameters from launch overrides, stored `.env` values, process environment variables, and schema defaults, including backend storage parameters such as `CUSTOMWARE_PATH`
+- expose `frontend_exposed` runtime parameters to page shells as injected meta tags
 - support local development and source-checkout update flows without turning the server into business-logic orchestration
 
 ## Structure
@@ -45,14 +81,15 @@ Current server layout:
 
 - `server/app.js`: server factory and subsystem bootstrap
 - `server/server.js`: startup entry used by the CLI and thin host flows
-- `server/config.js`: default host, port, and filesystem roots
+- `server/config.js`: filesystem roots and static server paths
 - `server/dev_server.js`: source-checkout dev supervisor used by `npm run dev`
+- `server/lib/utils/runtime_params.js`: shared runtime-parameter schema loading, validation, startup resolution, and frontend-exposure metadata
 - `server/pages/`: page shells for `/`, `/login`, and `/admin`, plus public shell assets under `server/pages/res/`
 - `server/api/`: endpoint modules loaded by endpoint name
 - `server/router/`: top-level request routing, page handling, `/mod/...` serving, direct app-file fetches, request context, response helpers, proxy transport, and CORS handling
-- `server/lib/customware/`: path normalization, group and inheritance logic, extension override resolution, app-file access, and module management
+- `server/lib/customware/`: logical app-path normalization, customware-root resolution, group and inheritance logic, extension override resolution, app-file access, and module management
 - `server/lib/auth/`: password verification, session service, user file helpers, user indexing, and user-management helpers
-- `server/lib/file_watch/`: config-driven watchdog plus derived indexes such as `path_index`, `group_index`, and `user_index`
+- `server/lib/file_watch/`: config-driven watchdog plus derived indexes such as `path_index`, `group_index`, and `user_index`, all keyed by logical `/app/...` project paths
 - `server/lib/git/`: Git backend abstraction used by update flows and Git-backed module installs
 
 ## Request Flow And Runtime Contracts
@@ -69,10 +106,13 @@ Request routing order is:
 Core runtime contracts:
 
 - request identity is derived from the server-issued `space_session` cookie via router-side request context plus the auth service
+- runtime auth may switch to a single-user mode where every request resolves to the implicit `user` principal
+- `HOST` and `PORT` come from the same runtime-parameter system as other server params instead of a special-case startup path
 - `/api/proxy`, `/mod/...`, and direct app-file fetches require an authenticated session unless an endpoint explicitly opts into anonymous access
 - `/mod/...` resolution uses the layered customware model and honors `maxLayer`, which defaults to `2`
 - `/admin` requests effectively force `maxLayer=0` for module and extension resolution through explicit request data, query parameters, or admin-origin fallback
 - `/~/path` maps to the authenticated user's `L2/<username>/path`
+- logical `/app/L1/...` and `/app/L2/...` paths may resolve to disk outside the repo when `CUSTOMWARE_PATH` is configured, while `/app/L0/...` remains repo-backed
 - `/L0/...`, `/L1/...`, and `/L2/...` direct fetches require authentication and use the same read permission model as the file APIs
 - non-`/mod`, non-`/api`, and non-app-fetch requests stay limited to the root page shells and page actions owned by `server/pages/`
 - `/logout` is handled by the pages layer and clears the current session before redirecting to `/login`
@@ -86,6 +126,8 @@ The server relies on a small set of shared infrastructure contracts. Do not re-i
 - `server/lib/customware/module_inheritance.js` and `server/lib/customware/extension_overrides.js` are the canonical module and extension resolution helpers
 - `server/lib/customware/module_manage.js` is the canonical module list, info, install, and remove helper
 - `server/lib/auth/service.js` is the canonical session and login service
+- `server/lib/utils/runtime_params.js` is the canonical parameter-resolution layer for startup env overrides, defaults, and frontend exposure
+- `server/lib/customware/layout.js` is the canonical logical-to-disk resolver for repo `L0` and configured writable `L1`/`L2` roots
 
 Infrastructure rules:
 
@@ -121,6 +163,8 @@ Current endpoint families:
 - app files: `file_list`, `file_paths`, `file_read`, `file_write`, `file_delete`, `file_copy`, `file_move`, `file_info`
 - modules: `module_list`, `module_info`, `module_install`, `module_remove`
 - runtime and identity: `extensions_load`, `password_generate`, `user_self_info`
+
+`user_self_info` is the canonical authenticated identity snapshot for browser clients and also exposes a serialized frontend scope derived from the shared app-file permission model.
 
 Detailed endpoint behavior now lives in `server/api/AGENTS.md`.
 

@@ -251,7 +251,8 @@ Notes:
 - `fileDelete()` also accepts batch input through a top-level `paths` array and returns `{ count, paths }`.
 - Batch file reads, writes, and deletes validate all targets up front and fail fast. If one batch entry is invalid or forbidden, nothing in that batch starts.
 - These calls enforce server-side permissions. If access is denied or the path is invalid, the call throws. Use `try/catch` when needed if the user is exploring unknown paths.
-- `space.api.userSelfInfo()` returns `{ username, fullName, groups, managedGroups, isAdmin }` for the authenticated user.
+- Call `space.api.userSelfInfo()` before development-oriented file changes if you need to confirm your writable frontend scope.
+- `space.api.userSelfInfo()` returns `{ username, fullName, groups, managedGroups, isAdmin, scope }` for the authenticated user. `scope.frontend.repoRoots` identifies the frontend tree (`app`), `scope.frontend` describes readable and writable logical app roots and module roots, and `scope.backend.repoRoots` stay read-only because `scope.backend.editable` is always `false`.
 - If you need the raw API surface, `space.api.call("file_list", ...)`, `space.api.call("file_read", ...)`, `space.api.call("file_write", ...)`, `space.api.call("file_delete", ...)`, and `space.api.call("user_self_info", ...)` are also available.
 
 ## Frontend YAML Helpers

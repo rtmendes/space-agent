@@ -1,7 +1,13 @@
 import fs from "node:fs";
 import path from "node:path";
 
-import { normalizeAppProjectPath, normalizeEntityId, parseAppProjectPath } from "./layout.js";
+import { createRuntimeGroupIndex, getRuntimeGroupIndex } from "./group_runtime.js";
+import {
+  normalizeAppProjectPath,
+  normalizeEntityId,
+  parseAppProjectPath,
+  resolveProjectAbsolutePath
+} from "./layout.js";
 import { createEmptyGroupIndex } from "./overrides.js";
 import { globToRegExp, normalizePathSegment } from "../utils/app_files.js";
 
@@ -55,12 +61,8 @@ function toAppRelativePath(projectPath) {
   return normalizedProjectPath.slice("/app/".length);
 }
 
-function getGroupIndex(watchdog) {
-  if (!watchdog || typeof watchdog.getIndex !== "function") {
-    return createEmptyGroupIndex();
-  }
-
-  return watchdog.getIndex("group_index") || createEmptyGroupIndex();
+function getGroupIndex(watchdog, runtimeParams) {
+  return getRuntimeGroupIndex(watchdog, runtimeParams);
 }
 
 function getPathIndex(watchdog) {
@@ -160,7 +162,10 @@ function listReadableGroupIds(username, groupIndex) {
 
 function createReadableOwnerScopes(options = {}) {
   const normalizedUsername = normalizeEntityId(options.username);
-  const groupIds = listReadableGroupIds(normalizedUsername, options.groupIndex || createEmptyGroupIndex());
+  const groupIds = listReadableGroupIds(
+    normalizedUsername,
+    createRuntimeGroupIndex(options.groupIndex || createEmptyGroupIndex(), options.runtimeParams)
+  );
   const ownerScopes = [];
   let rank = 0;
 
@@ -190,12 +195,87 @@ function createReadableOwnerScopes(options = {}) {
   return ownerScopes;
 }
 
+function uniqueStrings(values = []) {
+  const output = [];
+  const seen = new Set();
+
+  for (const value of values) {
+    if (typeof value !== "string" || !value || seen.has(value)) {
+      continue;
+    }
+
+    seen.add(value);
+    output.push(value);
+  }
+
+  return output;
+}
+
+function createAppAccessScope(options = {}) {
+  const groupIndex = createRuntimeGroupIndex(
+    options.groupIndex || createEmptyGroupIndex(),
+    options.runtimeParams
+  );
+  const accessController = createAppAccessController({
+    groupIndex,
+    runtimeParams: options.runtimeParams,
+    username: options.username
+  });
+  const readableRoots = uniqueStrings(
+    createReadableOwnerScopes({
+      groupIndex,
+      runtimeParams: options.runtimeParams,
+      username: accessController.username
+    })
+      .map((ownerScope) => toAppRelativePath(ownerScope.rootPath))
+      .filter(Boolean)
+  );
+  const writableRoots = uniqueStrings([
+    ...[...accessController.managedGroups]
+      .filter(Boolean)
+      .sort((left, right) => left.localeCompare(right))
+      .map((groupId) => `L1/${groupId}/`),
+    accessController.username ? `L2/${accessController.username}/` : ""
+  ]);
+  const writableRootPatterns = accessController.isAdmin ? ["L1/<group>/", "L2/<user>/"] : [];
+  const readableModuleRoots = readableRoots.map((rootPath) => `${rootPath}mod/`);
+  const writableModuleRoots = writableRoots.map((rootPath) => `${rootPath}mod/`);
+
+  return {
+    backend: {
+      editable: false,
+      repoRoots: ["server", "commands", "packaging"]
+    },
+    frontend: {
+      editable: Boolean(accessController.isAdmin || writableModuleRoots.length > 0),
+      preferredWritableModuleRoots: uniqueStrings([
+        accessController.username ? `L2/${accessController.username}/mod/` : "",
+        ...writableRoots
+          .filter((rootPath) => rootPath.startsWith("L1/"))
+          .map((rootPath) => `${rootPath}mod/`)
+      ]),
+      readOnlyLayers: ["L0"],
+      readableModuleRoots,
+      readableRoots,
+      repoRoots: ["app"],
+      writableLayers: ["L1", "L2"],
+      writableModuleRootPatterns: writableRootPatterns.map((rootPath) => `${rootPath}mod/`),
+      writableModuleRoots,
+      writableRootPatterns,
+      writableRoots
+    }
+  };
+}
+
 function findOwnerScope(projectPath, ownerScopes) {
   return ownerScopes.find((ownerScope) => projectPath.startsWith(ownerScope.rootPath)) || null;
 }
 
 function createAppAccessController(options = {}) {
-  const groupIndex = options.groupIndex || createEmptyGroupIndex();
+  const groupIndex = createRuntimeGroupIndex(
+    options.groupIndex || createEmptyGroupIndex(),
+    options.runtimeParams
+  );
   const username = normalizeEntityId(options.username);
   const managedGroups = new Set(
     groupIndex && typeof groupIndex.getManagedGroupsForUser === "function"
@@ -310,8 +390,8 @@ function resolveExistingProjectPath(pathIndex, inputPath) {
   };
 }
 
-function createAbsolutePath(projectRoot, projectPath) {
-  return path.join(projectRoot, stripTrailingSlash(String(projectPath || "").slice(1)));
+function createAbsolutePath(projectRoot, projectPath, runtimeParams) {
+  return resolveProjectAbsolutePath(projectRoot, projectPath, runtimeParams);
 }
 
 function getParentDirectoryProjectPath(projectPath) {
@@ -370,7 +450,8 @@ function normalizeReadEntries(options = {}) {
 function normalizeReadRequests(options = {}) {
   const pathIndex = getPathIndex(options.watchdog);
   const accessController = createAppAccessController({
-    groupIndex: getGroupIndex(options.watchdog),
+    groupIndex: getGroupIndex(options.watchdog, options.runtimeParams),
+    runtimeParams: options.runtimeParams,
     username: options.username
   });
   const entries = normalizeReadEntries(options);
@@ -399,7 +480,11 @@ function normalizeReadRequests(options = {}) {
     ensureReadableProjectPath(resolvedPath.projectPath, accessController);
 
     return {
-      absolutePath: createAbsolutePath(String(options.projectRoot || ""), resolvedPath.projectPath),
+      absolutePath: createAbsolutePath(
+        String(options.projectRoot || ""),
+        resolvedPath.projectPath,
+        options.runtimeParams
+      ),
       encoding: ensureValidReadEncoding(String(request.encoding || options.encoding || "utf8").toLowerCase()),
       path: toAppRelativePath(resolvedPath.projectPath)
     };
@@ -431,7 +516,8 @@ function readAppFile(options = {}) {
 function getAppPathInfo(options = {}) {
   const pathIndex = getPathIndex(options.watchdog);
   const accessController = createAppAccessController({
-    groupIndex: getGroupIndex(options.watchdog),
+    groupIndex: getGroupIndex(options.watchdog, options.runtimeParams),
+    runtimeParams: options.runtimeParams,
     username: options.username
   });
   const requestedPath = String(options.path || "").trim();
@@ -451,7 +537,11 @@ function getAppPathInfo(options = {}) {
 
   ensureReadableProjectPath(resolvedPath.projectPath, accessController);
 
-  const absolutePath = createAbsolutePath(String(options.projectRoot || ""), resolvedPath.projectPath);
+  const absolutePath = createAbsolutePath(
+    String(options.projectRoot || ""),
+    resolvedPath.projectPath,
+    options.runtimeParams
+  );
   const stats = fs.statSync(absolutePath);
 
   return {
@@ -486,7 +576,8 @@ function normalizeWriteEntries(options = {}) {
 
 function normalizeWriteRequests(options = {}) {
   const accessController = createAppAccessController({
-    groupIndex: getGroupIndex(options.watchdog),
+    groupIndex: getGroupIndex(options.watchdog, options.runtimeParams),
+    runtimeParams: options.runtimeParams,
     username: options.username
   });
   const entries = normalizeWriteEntries(options);
@@ -525,7 +616,11 @@ function normalizeWriteRequests(options = {}) {
       }
 
       return {
-        absolutePath: createAbsolutePath(String(options.projectRoot || ""), normalizedProjectPath),
+        absolutePath: createAbsolutePath(
+          String(options.projectRoot || ""),
+          normalizedProjectPath,
+          options.runtimeParams
+        ),
         isDirectory: true,
         path: toAppRelativePath(normalizedProjectPath)
       };
@@ -538,7 +633,11 @@ function normalizeWriteRequests(options = {}) {
         : Buffer.from(String(entry.content ?? ""), "utf8");
 
     return {
-      absolutePath: createAbsolutePath(String(options.projectRoot || ""), normalizedProjectPath),
+      absolutePath: createAbsolutePath(
+        String(options.projectRoot || ""),
+        normalizedProjectPath,
+        options.runtimeParams
+      ),
       buffer,
       encoding,
       isDirectory: false,
@@ -606,7 +705,8 @@ function normalizeTransferRequests(options = {}, actionType) {
   const actionLabel = actionType === "copy" ? "copy" : "move";
   const pathIndex = getPathIndex(options.watchdog);
   const accessController = createAppAccessController({
-    groupIndex: getGroupIndex(options.watchdog),
+    groupIndex: getGroupIndex(options.watchdog, options.runtimeParams),
+    runtimeParams: options.runtimeParams,
     username: options.username
   });
   const entries = normalizeTransferEntries(options, actionLabel);
@@ -676,10 +776,18 @@ function normalizeTransferRequests(options = {}, actionType) {
     return {
       fromPath: toAppRelativePath(resolvedSourcePath.projectPath),
       isDirectory: resolvedSourcePath.isDirectory,
-      sourceAbsolutePath: createAbsolutePath(String(options.projectRoot || ""), resolvedSourcePath.projectPath),
+      sourceAbsolutePath: createAbsolutePath(
+        String(options.projectRoot || ""),
+        resolvedSourcePath.projectPath,
+        options.runtimeParams
+      ),
       sourceProjectPath: resolvedSourcePath.projectPath,
       toPath: toAppRelativePath(destinationProjectPath),
-      destinationAbsolutePath: createAbsolutePath(String(options.projectRoot || ""), destinationProjectPath),
+      destinationAbsolutePath: createAbsolutePath(
+        String(options.projectRoot || ""),
+        destinationProjectPath,
+        options.runtimeParams
+      ),
       destinationProjectPath
     };
   });
@@ -804,7 +912,8 @@ function normalizeDeleteEntries(options = {}) {
 function normalizeDeleteRequests(options = {}) {
   const pathIndex = getPathIndex(options.watchdog);
   const accessController = createAppAccessController({
-    groupIndex: getGroupIndex(options.watchdog),
+    groupIndex: getGroupIndex(options.watchdog, options.runtimeParams),
+    runtimeParams: options.runtimeParams,
     username: options.username
   });
   const entries = normalizeDeleteEntries(options);
@@ -828,7 +937,11 @@ function normalizeDeleteRequests(options = {}) {
     ensureWritableProjectPath(resolvedPath.projectPath, accessController);
 
     return {
-      absolutePath: createAbsolutePath(String(options.projectRoot || ""), resolvedPath.projectPath),
+      absolutePath: createAbsolutePath(
+        String(options.projectRoot || ""),
+        resolvedPath.projectPath,
+        options.runtimeParams
+      ),
       isDirectory: resolvedPath.isDirectory,
       path: toAppRelativePath(resolvedPath.projectPath),
       projectPath: resolvedPath.projectPath
@@ -923,7 +1036,8 @@ function collectAncestorDirectories(targetDirectoryPath, descendantPath, pathInd
 function listAppPaths(options = {}) {
   const pathIndex = getPathIndex(options.watchdog);
   const accessController = createAppAccessController({
-    groupIndex: getGroupIndex(options.watchdog),
+    groupIndex: getGroupIndex(options.watchdog, options.runtimeParams),
+    runtimeParams: options.runtimeParams,
     username: options.username
   });
   const resolvedPath = resolveExistingProjectPath(
@@ -1008,7 +1122,8 @@ function listAppPathsByPatterns(options = {}) {
   }
 
   const ownerScopes = createReadableOwnerScopes({
-    groupIndex: getGroupIndex(options.watchdog),
+    groupIndex: getGroupIndex(options.watchdog, options.runtimeParams),
+    runtimeParams: options.runtimeParams,
     username: options.username
   });
 
@@ -1062,6 +1177,7 @@ export {
   copyAppPath,
   copyAppPaths,
   createAppAccessController,
+  createAppAccessScope,
   createHttpError,
   deleteAppPath,
   deleteAppPaths,

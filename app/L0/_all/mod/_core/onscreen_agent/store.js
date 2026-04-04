@@ -3,6 +3,7 @@ import * as agentApi from "/mod/_core/onscreen_agent/api.js";
 import * as execution from "/mod/_core/onscreen_agent/execution.js";
 import * as llmParams from "/mod/_core/onscreen_agent/llm-params.js";
 import * as prompt from "/mod/_core/onscreen_agent/prompt.js";
+import * as skills from "/mod/_core/onscreen_agent/skills.js";
 import * as storage from "/mod/_core/onscreen_agent/storage.js";
 import * as agentView from "/mod/_core/onscreen_agent/view.js";
 import { positionPopover } from "/mod/_core/visual/chrome/popover.js";
@@ -21,6 +22,8 @@ const COMPACT_MODE_TOP_EDGE_THRESHOLD_EM = 10;
 const DISPLAY_MODE_FULL = "full";
 const DISPLAY_MODE_COMPACT = "compact";
 const DRAG_CLICK_THRESHOLD = 6;
+const HISTORY_MIN_HEIGHT_PX = 80;
+const HISTORY_OFFSET_PX = 12;
 const MAX_COMPACT_TRIM_ATTEMPTS = 4;
 const MAX_PROTOCOL_RETRY_COUNT = 2;
 const POSITION_MARGIN = 16;
@@ -35,6 +38,8 @@ const IDLE_HINT_BUBBLE_TEXT = "Drag me, tap me.";
 const HISTORY_DIALOG_ELEMENT_ID = "onscreen-agent-history-dialog";
 const RAW_DIALOG_ELEMENT_ID = "onscreen-agent-raw-dialog";
 const SETTINGS_DIALOG_ELEMENT_ID = "onscreen-agent-settings-dialog";
+const VIEWPORT_VISIBILITY_CHECK_INTERVAL_MS = 2000;
+const DEFAULT_AVATAR_SIZE_PX = 72;
 
 function getRuntime() {
   const runtime = globalThis.space;
@@ -217,12 +222,40 @@ function isExecutionFollowUpKind(kind) {
   return kind === "execution-output" || kind === "execution-retry";
 }
 
+function dataTransferContainsFiles(dataTransfer) {
+  if (!dataTransfer) {
+    return false;
+  }
+
+  const items = Array.from(dataTransfer.items || []);
+
+  if (items.some((item) => item?.kind === "file")) {
+    return true;
+  }
+
+  const types = Array.from(dataTransfer.types || []);
+
+  if (types.includes("Files")) {
+    return true;
+  }
+
+  if (typeof dataTransfer.types?.contains === "function" && dataTransfer.types.contains("Files")) {
+    return true;
+  }
+
+  return Number(dataTransfer.files?.length) > 0;
+}
+
 function executionResultHasUsableOutput(result) {
   if (result?.error) {
     return true;
   }
 
   if (result?.result !== undefined) {
+    return true;
+  }
+
+  if (Array.isArray(result?.loadedSkills) && result.loadedSkills.length > 0) {
     return true;
   }
 
@@ -410,8 +443,10 @@ function getExecutionStatusText(code, index, total) {
 
 const model = {
   activeRequestController: null,
+  attachmentDragDepth: 0,
   composerActionMenuAnchor: null,
   composerActionMenuPosition: createComposerActionMenuPosition(),
+  composerActionMenuRenderToken: 0,
   configPersistTimer: 0,
   currentChatRuntime: null,
   defaultSystemPrompt: "",
@@ -422,13 +457,17 @@ const model = {
   executionContext: null,
   executionOutputOverrides: Object.create(null),
   history: [],
+  historyHeight: null,
   historyPersistPromise: null,
+  historyResizeState: null,
   historyText: "",
   historyTokenCount: 0,
   hasInteracted: false,
   initializationPromise: null,
   interactionHintTimer: 0,
+  isAttachmentDragActive: false,
   isCompactingHistory: false,
+  isComposerActionMenuVisible: false,
   isInitialized: false,
   isLoadingDefaultSystemPrompt: false,
   isUiBubbleMounted: false,
@@ -444,11 +483,15 @@ const model = {
   rawOutputTitle: "Raw LLM Output",
   refs: {
     actionMenu: null,
+    avatar: null,
     attachmentInput: null,
     historyDialog: null,
+    historyShell: null,
     input: null,
+    panel: null,
     rawDialog: null,
     scroller: null,
+    shell: null,
     settingsDialog: null,
     thread: null
   },
@@ -459,6 +502,10 @@ const model = {
   streamingRenderFrame: 0,
   dragMoveHandler: null,
   dragEndHandler: null,
+  historyResizeMoveHandler: null,
+  historyResizeEndHandler: null,
+  viewportVisibilityCheckTimer: 0,
+  viewportVisibilityHandler: null,
   uiBubbleAutoHideTimer: 0,
   uiBubbleEnterTimer: 0,
   uiBubbleExitTimer: 0,
@@ -535,7 +582,9 @@ const model = {
     return {
       left: `${this.composerActionMenuPosition.left}px`,
       maxHeight: `${this.composerActionMenuPosition.maxHeight}px`,
-      top: `${this.composerActionMenuPosition.top}px`
+      top: `${this.composerActionMenuPosition.top}px`,
+      pointerEvents: this.isComposerActionMenuVisible ? "auto" : "none",
+      visibility: this.isComposerActionMenuVisible ? "visible" : "hidden"
     };
   },
 
@@ -598,6 +647,18 @@ const model = {
 
   get historyTokenSummary() {
     return `${config.formatOnscreenAgentTokenCount(this.historyTokenCount)} tokens`;
+  },
+
+  get historyStyle() {
+    const clampedHeight = this.getClampedHistoryHeight();
+    const defaultAutoMaxHeight = this.getAvailableViewportHistoryHeight() ?? this.getDefaultHistoryAutoMaxHeight();
+    const resizableMaxHeight = this.getMaxResizableHistoryHeight();
+
+    if (clampedHeight === null) {
+      return `--onscreen-agent-history-max-height:${defaultAutoMaxHeight}px;`;
+    }
+
+    return `--onscreen-agent-history-height:${clampedHeight}px;--onscreen-agent-history-max-height:${resizableMaxHeight}px;`;
   },
 
   get isAttachmentPickerDisabled() {
@@ -708,8 +769,20 @@ const model = {
     return this.isCompactMode ? this.isCompactModeNearTopEdge : this.isHistoryBelow;
   },
 
+  get composerActionMenuAnchorViewportY() {
+    if (this.composerActionMenuAnchor?.getBoundingClientRect) {
+      const anchorRect = this.composerActionMenuAnchor.getBoundingClientRect();
+
+      if (Number.isFinite(anchorRect.top) && Number.isFinite(anchorRect.height)) {
+        return anchorRect.top + anchorRect.height / 2;
+      }
+    }
+
+    return this.agentY;
+  },
+
   get shouldOpenComposerActionMenuBelow() {
-    return this.isCompactMode ? this.isCompactModeNearTopEdge : this.isHistoryBelow;
+    return this.composerActionMenuAnchorViewportY <= this.getViewportHeight() * 0.5;
   },
 
   get avatarButtonLabel() {
@@ -732,6 +805,23 @@ const model = {
     return Math.max(window.innerHeight || 0, document.documentElement.clientHeight || 0, 320);
   },
 
+  getAvatarSize() {
+    const avatarRect = this.refs.avatar?.getBoundingClientRect?.();
+
+    if (Number.isFinite(avatarRect?.width) && avatarRect.width > 0) {
+      return Math.round(avatarRect.width);
+    }
+
+    const shellStyle = this.refs.shell ? globalThis.getComputedStyle?.(this.refs.shell) : null;
+    const computedAvatarSize = Number.parseFloat(shellStyle?.getPropertyValue("--onscreen-agent-avatar-size") || "");
+
+    if (Number.isFinite(computedAvatarSize) && computedAvatarSize > 0) {
+      return Math.round(computedAvatarSize);
+    }
+
+    return DEFAULT_AVATAR_SIZE_PX;
+  },
+
   getDefaultPosition() {
     return {
       x: 40,
@@ -739,14 +829,143 @@ const model = {
     };
   },
 
+  getDefaultHistoryAutoMaxHeight() {
+    const isCompactViewport = this.getViewportWidth() <= 720;
+    const remLimit = getRootFontSizePx() * (isCompactViewport ? 18 : 24);
+    const viewportAllowance = this.getViewportHeight() - (isCompactViewport ? 170 : 180);
+
+    return Math.max(HISTORY_MIN_HEIGHT_PX, Math.round(Math.min(remLimit, viewportAllowance)));
+  },
+
+  getAvailableViewportHistoryHeight() {
+    if (!this.isFullMode || !this.shouldShowHistory) {
+      return null;
+    }
+
+    const panelRect = this.refs.panel?.getBoundingClientRect ? this.refs.panel.getBoundingClientRect() : null;
+    const hasPanelMetrics =
+      Number.isFinite(panelRect?.top) && Number.isFinite(panelRect?.bottom) && Number.isFinite(panelRect?.height);
+    const anchorY = Number(this.agentY);
+
+    if (this.isHistoryBelow && hasPanelMetrics && Number.isFinite(anchorY)) {
+      const availableHeight = this.getViewportHeight() - POSITION_MARGIN - (anchorY + panelRect.height + HISTORY_OFFSET_PX);
+
+      if (Number.isFinite(availableHeight) && availableHeight > 0) {
+        return Math.max(1, Math.round(availableHeight));
+      }
+    }
+
+    if (this.refs.historyShell?.getBoundingClientRect) {
+      const historyRect = this.refs.historyShell.getBoundingClientRect();
+
+      if (!Number.isFinite(historyRect.top) || !Number.isFinite(historyRect.bottom)) {
+        return null;
+      }
+
+      const availableHeight = this.isHistoryBelow
+        ? this.getViewportHeight() - POSITION_MARGIN - historyRect.top
+        : historyRect.bottom - POSITION_MARGIN;
+
+      if (!Number.isFinite(availableHeight) || availableHeight <= 0) {
+        return null;
+      }
+
+      return Math.max(1, Math.round(availableHeight));
+    }
+
+    if (!hasPanelMetrics) {
+      return null;
+    }
+
+    const availableHeight = this.isHistoryBelow
+      ? this.getViewportHeight() - POSITION_MARGIN - (panelRect.bottom + HISTORY_OFFSET_PX)
+      : panelRect.top - HISTORY_OFFSET_PX - POSITION_MARGIN;
+
+    if (!Number.isFinite(availableHeight) || availableHeight <= 0) {
+      return null;
+    }
+
+    return Math.max(1, Math.round(availableHeight));
+  },
+
+  getMaxResizableHistoryHeight() {
+    const fittedHeight = this.getAvailableViewportHistoryHeight();
+
+    if (fittedHeight !== null) {
+      return fittedHeight;
+    }
+
+    const isCompactViewport = this.getViewportWidth() <= 720;
+    const viewportAllowance = this.getViewportHeight() - (isCompactViewport ? 170 : 180);
+
+    return Math.max(HISTORY_MIN_HEIGHT_PX, Math.round(viewportAllowance));
+  },
+
+  getClampedHistoryHeight(value = this.historyHeight) {
+    const normalizedValue = config.normalizeOnscreenAgentHistoryHeight(value);
+
+    if (normalizedValue === null) {
+      return null;
+    }
+
+    return Math.min(this.getMaxResizableHistoryHeight(), Math.max(HISTORY_MIN_HEIGHT_PX, normalizedValue));
+  },
+
+  fillHistoryToViewport() {
+    if (!this.isFullMode || !this.shouldShowHistory) {
+      return;
+    }
+
+    const fittedHeight = this.getMaxResizableHistoryHeight();
+    const storedHeight = config.normalizeOnscreenAgentHistoryHeight(this.historyHeight);
+
+    if (!Number.isFinite(fittedHeight) || fittedHeight <= 0 || fittedHeight === storedHeight) {
+      return;
+    }
+
+    this.historyHeight = fittedHeight;
+  },
+
   clampPosition(x, y) {
-    const maxX = Math.max(POSITION_MARGIN, this.getViewportWidth() - 72 - POSITION_MARGIN);
-    const maxY = Math.max(POSITION_MARGIN, this.getViewportHeight() - 72 - POSITION_MARGIN);
+    const avatarSize = this.getAvatarSize();
+    const maxX = Math.max(POSITION_MARGIN, this.getViewportWidth() - avatarSize - POSITION_MARGIN);
+    const maxY = Math.max(POSITION_MARGIN, this.getViewportHeight() - avatarSize - POSITION_MARGIN);
 
     return {
       x: Math.min(maxX, Math.max(POSITION_MARGIN, Math.round(Number(x) || 0))),
       y: Math.min(maxY, Math.max(POSITION_MARGIN, Math.round(Number(y) || 0)))
     };
+  },
+
+  isAvatarVisible() {
+    const avatarRect = this.refs.avatar?.getBoundingClientRect?.();
+
+    if (
+      !Number.isFinite(avatarRect?.left) ||
+      !Number.isFinite(avatarRect?.top) ||
+      !Number.isFinite(avatarRect?.right) ||
+      !Number.isFinite(avatarRect?.bottom)
+    ) {
+      return null;
+    }
+
+    return (
+      avatarRect.right > POSITION_MARGIN &&
+      avatarRect.bottom > POSITION_MARGIN &&
+      avatarRect.left < this.getViewportWidth() - POSITION_MARGIN &&
+      avatarRect.top < this.getViewportHeight() - POSITION_MARGIN
+    );
+  },
+
+  reflowOverlayLayout(options = {}) {
+    this.positionComposerActionMenu();
+    this.render({
+      preserveScroll: options.preserveScroll !== false
+    });
+
+    runOnNextFrame(() => {
+      this.fillHistoryToViewport();
+    });
   },
 
   setPosition(x, y, options = {}) {
@@ -760,21 +979,54 @@ const model = {
   },
 
   ensurePosition(options = {}) {
+    let moved = false;
+
     if (typeof this.agentX !== "number" || !Number.isFinite(this.agentX) || typeof this.agentY !== "number" || !Number.isFinite(this.agentY)) {
       const defaultPosition = this.getDefaultPosition();
-      this.agentX = defaultPosition.x;
-      this.agentY = defaultPosition.y;
+      const clampedDefaultPosition = this.clampPosition(defaultPosition.x, defaultPosition.y);
+      this.agentX = clampedDefaultPosition.x;
+      this.agentY = clampedDefaultPosition.y;
+      moved = true;
 
       if (options.persist === true) {
         this.scheduleConfigPersist();
       }
 
-      return;
+      if (options.reflow === true) {
+        this.reflowOverlayLayout(options);
+      }
+
+      return moved;
     }
 
-    this.setPosition(this.agentX, this.agentY, {
-      persist: options.persist === true
-    });
+    const position = this.clampPosition(this.agentX, this.agentY);
+
+    if (position.x !== this.agentX || position.y !== this.agentY) {
+      this.agentX = position.x;
+      this.agentY = position.y;
+      moved = true;
+    }
+
+    if (!moved && options.ensureVisible !== false && this.isAvatarVisible() === false) {
+      const fallbackPosition = this.getDefaultPosition();
+      const defaultPosition = this.clampPosition(fallbackPosition.x, fallbackPosition.y);
+
+      if (defaultPosition.x !== this.agentX || defaultPosition.y !== this.agentY) {
+        this.agentX = defaultPosition.x;
+        this.agentY = defaultPosition.y;
+        moved = true;
+      }
+    }
+
+    if (moved && options.persist === true) {
+      this.scheduleConfigPersist();
+    }
+
+    if (moved || options.reflow === true) {
+      this.reflowOverlayLayout(options);
+    }
+
+    return moved;
   },
 
   scheduleConfigPersist() {
@@ -794,6 +1046,7 @@ const model = {
         agentX: this.agentX,
         agentY: this.agentY,
         displayMode: this.displayMode,
+        historyHeight: this.historyHeight,
         settings: this.settings,
         systemPrompt: this.systemPrompt
       });
@@ -1040,6 +1293,7 @@ const model = {
         targetWindow: window
       });
       this.syncCurrentChatRuntime();
+      skills.installOnscreenSkillRuntime();
 
       try {
         const [storedConfig, storedHistory] = await Promise.all([
@@ -1058,8 +1312,12 @@ const model = {
         this.agentX = storedConfig.agentX;
         this.agentY = storedConfig.agentY;
         this.displayMode = normalizeDisplayMode(storedConfig.displayMode);
+        this.historyHeight = config.normalizeOnscreenAgentHistoryHeight(storedConfig.historyHeight);
         this.replaceHistory(storedHistory.map((message) => normalizeStoredMessage(message)));
-        this.ensurePosition();
+        this.ensurePosition({
+          persist: true,
+          reflow: true
+        });
 
         this.status = "Loading default system prompt...";
         this.isLoadingDefaultSystemPrompt = true;
@@ -1077,6 +1335,12 @@ const model = {
         this.isInitialized = true;
         this.status = "Ready.";
         this.render();
+        runOnNextFrame(() => {
+          this.ensurePosition({
+            persist: true,
+            reflow: true
+          });
+        });
 
         if (this.hasInteracted) {
           this.focusInput();
@@ -1093,24 +1357,56 @@ const model = {
   mount(refs = {}) {
     this.refs = {
       actionMenu: refs.actionMenu || null,
+      avatar: refs.avatar || null,
       attachmentInput: refs.attachmentInput || null,
       historyDialog: refs.historyDialog || null,
+      historyShell: refs.historyShell || null,
       input: refs.input || null,
+      panel: refs.panel || null,
       rawDialog: refs.rawDialog || null,
       scroller: refs.scroller || null,
+      shell: refs.shell || null,
       settingsDialog: refs.settingsDialog || null,
       thread: refs.thread || null
     };
 
     if (!this.resizeHandler) {
       this.resizeHandler = () => {
-        this.ensurePosition();
-        this.positionComposerActionMenu();
-        this.render({
-          preserveScroll: true
+        this.ensurePosition({
+          persist: true,
+          reflow: true
         });
       };
       window.addEventListener("resize", this.resizeHandler);
+    }
+
+    if (!this.viewportVisibilityHandler) {
+      this.viewportVisibilityHandler = () => {
+        if (document.visibilityState === "hidden") {
+          return;
+        }
+
+        this.ensurePosition({
+          persist: true,
+          reflow: true
+        });
+      };
+    }
+
+    document.addEventListener("visibilitychange", this.viewportVisibilityHandler);
+    window.addEventListener("focus", this.viewportVisibilityHandler);
+    window.addEventListener("pageshow", this.viewportVisibilityHandler);
+
+    if (!this.viewportVisibilityCheckTimer) {
+      this.viewportVisibilityCheckTimer = window.setInterval(() => {
+        if (document.visibilityState === "hidden") {
+          return;
+        }
+
+        this.ensurePosition({
+          persist: true
+        });
+      }, VIEWPORT_VISIBILITY_CHECK_INTERVAL_MS);
     }
 
     if (!this.dragMoveHandler) {
@@ -1125,15 +1421,47 @@ const model = {
       };
     }
 
+    if (!this.historyResizeMoveHandler) {
+      this.historyResizeMoveHandler = (event) => {
+        this.handleHistoryResizePointerMove(event);
+      };
+    }
+
+    if (!this.historyResizeEndHandler) {
+      this.historyResizeEndHandler = (event) => {
+        this.handleHistoryResizePointerUp(event);
+      };
+    }
+
     if (this.refs.input) {
       this.refs.input.value = this.draft;
       agentView.autoResizeTextarea(this.refs.input);
     }
 
-    this.ensurePosition();
-    this.render();
+    this.ensurePosition({
+      reflow: true
+    });
     this.scheduleInteractionHint();
     void this.init();
+  },
+
+  mountHistory(refs = {}) {
+    this.refs.historyShell = refs.historyShell || null;
+    this.refs.scroller = refs.scroller || null;
+    this.refs.thread = refs.thread || null;
+    this.render();
+
+    runOnNextFrame(() => {
+      this.fillHistoryToViewport();
+      this.scrollHistoryToLatest();
+    });
+  },
+
+  unmountHistory() {
+    this.cleanupHistoryResize();
+    this.refs.historyShell = null;
+    this.refs.scroller = null;
+    this.refs.thread = null;
   },
 
   cleanupDrag() {
@@ -1151,9 +1479,26 @@ const model = {
     this.dragState = null;
   },
 
+  cleanupHistoryResize() {
+    if (this.historyResizeState?.target?.releasePointerCapture && this.historyResizeState.pointerId !== null) {
+      try {
+        this.historyResizeState.target.releasePointerCapture(this.historyResizeState.pointerId);
+      } catch {
+        // Ignore capture release issues.
+      }
+    }
+
+    window.removeEventListener("pointermove", this.historyResizeMoveHandler);
+    window.removeEventListener("pointerup", this.historyResizeEndHandler);
+    window.removeEventListener("pointercancel", this.historyResizeEndHandler);
+    this.historyResizeState = null;
+  },
+
   unmount() {
     this.cleanupDrag();
+    this.cleanupHistoryResize();
     this.cancelStreamingMessageRender();
+    this.resetAttachmentDragState();
     this.clearInteractionHintTimer();
     this.clearUiBubbleEnterTimer();
     this.clearUiBubbleAutoHideTimer();
@@ -1174,13 +1519,28 @@ const model = {
       this.resizeHandler = null;
     }
 
+    if (this.viewportVisibilityHandler) {
+      document.removeEventListener("visibilitychange", this.viewportVisibilityHandler);
+      window.removeEventListener("focus", this.viewportVisibilityHandler);
+      window.removeEventListener("pageshow", this.viewportVisibilityHandler);
+    }
+
+    if (this.viewportVisibilityCheckTimer) {
+      window.clearInterval(this.viewportVisibilityCheckTimer);
+      this.viewportVisibilityCheckTimer = 0;
+    }
+
     this.refs = {
       actionMenu: null,
+      avatar: null,
       attachmentInput: null,
       historyDialog: null,
+      historyShell: null,
       input: null,
+      panel: null,
       rawDialog: null,
       scroller: null,
+      shell: null,
       settingsDialog: null,
       thread: null
     };
@@ -1191,6 +1551,8 @@ const model = {
       return;
     }
 
+    this.cleanupHistoryResize();
+    this.closeComposerActionMenu();
     this.recordInteraction();
 
     const target = event.currentTarget;
@@ -1250,6 +1612,69 @@ const model = {
     }
 
     this.cycleDisplayMode();
+  },
+
+  handleHistoryResizePointerDown(event) {
+    if (event.button !== 0 || !this.shouldShowHistory) {
+      return;
+    }
+
+    const historyShell = this.refs.historyShell;
+    const target = event.currentTarget;
+
+    if (!historyShell || !target) {
+      return;
+    }
+
+    this.cleanupDrag();
+    this.cleanupHistoryResize();
+    this.recordInteraction();
+
+    this.historyResizeState = {
+      historyBelow: this.isHistoryBelow,
+      pointerId: event.pointerId,
+      startHeight: historyShell.offsetHeight || this.getClampedHistoryHeight() || this.getDefaultHistoryAutoMaxHeight(),
+      startY: event.clientY,
+      target
+    };
+
+    if (target?.setPointerCapture) {
+      try {
+        target.setPointerCapture(event.pointerId);
+      } catch {
+        // Ignore pointer capture failures.
+      }
+    }
+
+    window.addEventListener("pointermove", this.historyResizeMoveHandler);
+    window.addEventListener("pointerup", this.historyResizeEndHandler);
+    window.addEventListener("pointercancel", this.historyResizeEndHandler);
+    event.preventDefault();
+    event.stopPropagation();
+  },
+
+  handleHistoryResizePointerMove(event) {
+    if (!this.historyResizeState || event.pointerId !== this.historyResizeState.pointerId) {
+      return;
+    }
+
+    const deltaY = event.clientY - this.historyResizeState.startY;
+    const direction = this.historyResizeState.historyBelow ? 1 : -1;
+    this.historyHeight = this.getClampedHistoryHeight(this.historyResizeState.startHeight + deltaY * direction);
+  },
+
+  handleHistoryResizePointerUp(event) {
+    if (!this.historyResizeState || event.pointerId !== this.historyResizeState.pointerId) {
+      return;
+    }
+
+    const finalHeight = this.getClampedHistoryHeight(this.historyHeight) ?? this.historyResizeState.startHeight;
+    const resized = Math.abs(finalHeight - this.historyResizeState.startHeight) >= 1;
+    this.cleanupHistoryResize();
+
+    if (resized) {
+      this.scheduleConfigPersist();
+    }
   },
 
   cycleDisplayMode() {
@@ -1448,6 +1873,49 @@ const model = {
     }
   },
 
+  resetAttachmentDragState() {
+    this.attachmentDragDepth = 0;
+    this.isAttachmentDragActive = false;
+  },
+
+  appendDraftAttachments(files) {
+    const nextAttachments = createDraftAttachments(files);
+
+    if (!nextAttachments.length) {
+      return false;
+    }
+
+    const existingKeys = new Set(
+      this.draftAttachments.map(
+        (attachment) =>
+          `${attachment.name}::${attachment.size}::${attachment.lastModified}::${attachment.type}`
+      )
+    );
+    const uniqueAttachments = nextAttachments.filter((attachment) => {
+      const key = `${attachment.name}::${attachment.size}::${attachment.lastModified}::${attachment.type}`;
+
+      if (existingKeys.has(key)) {
+        return false;
+      }
+
+      existingKeys.add(key);
+      return true;
+    });
+
+    if (!uniqueAttachments.length) {
+      return false;
+    }
+
+    this.draftAttachments = [...this.draftAttachments, ...uniqueAttachments];
+    this.render({
+      preserveScroll: true
+    });
+    this.status = `${this.draftAttachments.length} attachment${
+      this.draftAttachments.length === 1 ? "" : "s"
+    } ready.`;
+    return true;
+  },
+
   createDraftSubmissionSnapshot() {
     const content = this.draft.trim();
     const attachments = this.draftAttachments.slice();
@@ -1524,17 +1992,31 @@ const model = {
 
   closeComposerActionMenu() {
     this.composerActionMenuAnchor = null;
+    this.composerActionMenuRenderToken += 1;
+    this.isComposerActionMenuVisible = false;
     this.composerActionMenuPosition = createComposerActionMenuPosition();
   },
 
   openComposerActionMenu(anchor) {
     this.composerActionMenuAnchor = anchor || null;
+    this.composerActionMenuRenderToken += 1;
+    this.isComposerActionMenuVisible = false;
+    const renderToken = this.composerActionMenuRenderToken;
 
     globalThis.requestAnimationFrame(() => {
+      if (!this.isComposerActionMenuOpen || this.composerActionMenuRenderToken !== renderToken) {
+        return;
+      }
+
       this.positionComposerActionMenu();
 
       globalThis.requestAnimationFrame(() => {
+        if (!this.isComposerActionMenuOpen || this.composerActionMenuRenderToken !== renderToken) {
+          return;
+        }
+
         this.positionComposerActionMenu();
+        this.isComposerActionMenuVisible = true;
       });
     });
   },
@@ -1618,42 +2100,66 @@ const model = {
     this.refs.attachmentInput?.click();
   },
 
-  handleAttachmentInput(event) {
-    const nextAttachments = createDraftAttachments(event?.target?.files);
-
-    if (!nextAttachments.length) {
-      if (event?.target) {
-        event.target.value = "";
-      }
+  handleAttachmentDragEnter(event) {
+    if (!dataTransferContainsFiles(event?.dataTransfer)) {
       return;
     }
 
-    const existingKeys = new Set(
-      this.draftAttachments.map(
-        (attachment) =>
-          `${attachment.name}::${attachment.size}::${attachment.lastModified}::${attachment.type}`
-      )
-    );
-    const uniqueAttachments = nextAttachments.filter((attachment) => {
-      const key = `${attachment.name}::${attachment.size}::${attachment.lastModified}::${attachment.type}`;
+    event.preventDefault();
+    this.attachmentDragDepth += 1;
 
-      if (existingKeys.has(key)) {
-        return false;
-      }
-
-      existingKeys.add(key);
-      return true;
-    });
-
-    if (uniqueAttachments.length) {
-      this.draftAttachments = [...this.draftAttachments, ...uniqueAttachments];
-      this.render({
-        preserveScroll: true
-      });
-      this.status = `${this.draftAttachments.length} attachment${
-        this.draftAttachments.length === 1 ? "" : "s"
-      } ready.`;
+    if (!this.isAttachmentPickerDisabled) {
+      this.isAttachmentDragActive = true;
     }
+  },
+
+  handleAttachmentDragOver(event) {
+    if (!dataTransferContainsFiles(event?.dataTransfer)) {
+      return;
+    }
+
+    event.preventDefault();
+
+    if (event.dataTransfer) {
+      event.dataTransfer.dropEffect = "copy";
+    }
+
+    if (!this.isAttachmentPickerDisabled) {
+      this.isAttachmentDragActive = true;
+    }
+  },
+
+  handleAttachmentDragLeave(event) {
+    if (!dataTransferContainsFiles(event?.dataTransfer)) {
+      return;
+    }
+
+    this.attachmentDragDepth = Math.max(0, this.attachmentDragDepth - 1);
+
+    if (this.attachmentDragDepth === 0) {
+      this.isAttachmentDragActive = false;
+    }
+  },
+
+  handleAttachmentDrop(event) {
+    if (!dataTransferContainsFiles(event?.dataTransfer)) {
+      return;
+    }
+
+    event.preventDefault();
+    this.recordInteraction();
+    const droppedFiles = event.dataTransfer?.files;
+    this.resetAttachmentDragState();
+
+    if (this.isAttachmentPickerDisabled) {
+      return;
+    }
+
+    this.appendDraftAttachments(droppedFiles);
+  },
+
+  handleAttachmentInput(event) {
+    this.appendDraftAttachments(event?.target?.files);
 
     if (event?.target) {
       event.target.value = "";

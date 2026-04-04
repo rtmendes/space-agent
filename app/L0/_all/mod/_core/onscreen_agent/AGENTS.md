@@ -4,18 +4,34 @@
 
 `_core/onscreen_agent/` owns the floating routed overlay agent.
 
-It mounts into the router overlay layer, keeps its own floating shell, prompt files, persistence, attachments, execution loop, and overlay-specific interaction model, and reuses shared visual primitives for rendering and dialogs.
+It mounts into the router overlay layer, keeps its own floating shell, prompt files, persistence, attachments, execution loop, and overlay-specific interaction model, and reuses shared visual primitives for rendering and dialogs. It is the first-party user-facing agent surface under `_core/`.
 
 Documentation is top priority for this module. After any change under `_core/onscreen_agent/`, update this file and any affected parent docs in the same session.
+
+## Documentation Hierarchy
+
+`_core/onscreen_agent/AGENTS.md` owns the overlay runtime, shared onscreen skill-loading contract, and the map of deeper docs inside this subtree.
+
+Current deeper docs:
+
+- `app/L0/_all/mod/_core/onscreen_agent/ext/skills/development/AGENTS.md`
+
+Update rules:
+
+- update this file when overlay-wide runtime behavior, skill loading, or ownership boundaries change
+- update the deeper development-skill doc when the development skill tree, routing map, or mirrored source contracts change
+- when framework, router, API, path, permission, or auth contracts change in ways that affect the development skill tree, update the deeper doc in the same session
 
 ## Ownership
 
 This module owns:
 
-- `ext/page/router/overlay/end/onscreen-agent.html`: thin adapter that mounts the overlay into the router overlay seam
+- `ext/html/page/router/overlay/end/onscreen-agent.html`: thin adapter that mounts the overlay into the router overlay seam
+- `ext/skills/`: starter onscreen-agent skill folders, each ending in `skill.md`
 - `panel.html`: overlay UI
-- `store.js`: floating-shell state, send loop, persistence, drag behavior, display mode, and overlay menus
+- `store.js`: floating-shell state, send loop, persistence, avatar drag behavior, history resize behavior, display mode, and overlay menus
 - `view.js`: shared-thread-view wiring
+- `skills.js`: onscreen skill catalog building and `space.skills.load(...)`
 - `api.js`, `prompt.js`, `execution.js`, `attachments.js`, and `llm-params.js`: local runtime helpers
 - `config.js` and `storage.js`: persisted settings, position, display mode, and history
 - `system-prompt.md`, `compact-prompt.md`, and `compact-prompt-auto.md`: shipped prompt files
@@ -35,7 +51,15 @@ Current config fields include:
 - optional `custom_system_prompt`
 - `agent_x`
 - `agent_y`
+- optional `history_height`
 - `display_mode`
+
+Legacy compatibility:
+
+- `display_mode` is the canonical persisted mode field
+- `storage.js` still accepts legacy `collapsed` values when older configs are loaded
+- `storage.js` also normalizes numeric coordinate scalars from the lightweight YAML parser before the overlay store applies `agent_x` and `agent_y`
+- when config is rewritten, legacy `collapsed` is mirrored from `display_mode` so the two fields do not drift
 
 Current defaults:
 
@@ -49,6 +73,8 @@ Prompt rules:
 
 - `system-prompt.md` is the firmware prompt
 - custom instructions are appended under `## User specific instructions`
+- the runtime prompt appends only the top-level onscreen skill catalog built from readable `mod/*/*/ext/skills/*/skill.md` files
+- the firmware prompt should treat `space.api.userSelfInfo().scope` as the canonical way to discover readable and writable frontend roots before development-oriented file changes
 - `compact-prompt.md` is used for user-triggered history compaction
 - `compact-prompt-auto.md` is used for automatic compaction during the loop
 
@@ -58,16 +84,36 @@ Current overlay behavior:
 
 - the module mounts only through the router overlay seam at `page/router/overlay/end`
 - the shell supports compact and full display modes
-- drag positioning, action menus, and visibility state are owned by `store.js`
+- avatar drag positioning, action menus, history-edge resizing, and visibility recovery are owned by `store.js`
+- `panel.html` passes `shell`, `avatar`, panel, thread, and dialog refs into `store.js`; the store uses those refs to clamp the saved position against the current viewport and to detect when the astronaut has drifted fully off-screen
+- the full-mode history subtree mounts only in full mode; compact mode does not keep a history container mounted
+- the full-mode history uses a non-scrolling outer shell for placement, chrome, and the resize grip, with an inner scroller that owns thread overflow
+- in full mode, the history panel can be resized vertically from the outer top or bottom edge based on orientation, and the chosen height persists in config
+- when full mode mounts, the history shell resets its raw height to the currently available viewport space on the chosen side, using the panel geometry before mount and the history shell geometry after mount, so expansion never keeps a stale oversize height
+- the compact and full composer panels accept attachments from either the file picker or direct file drag-and-drop onto the chat box
+- saved `agent_x`, `agent_y`, and `display_mode` are loaded during init before prompt startup continues
+- after mount and after config load, the store re-clamps the saved position to the current viewport and persists any correction back to config
+- while mounted, the store also re-checks visibility on resize, `visibilitychange`, `focus`, `pageshow`, and on a periodic timer so monitor changes or desktop switches cannot leave the astronaut permanently off-screen
 - browser execution blocks use the `_____javascript` separator and are executed locally through `execution.js`
 - the surface uses the shared `createAgentThreadView(...)` renderer from `_core/visual/conversation/thread-view.js`
 - native dialogs use the shared dialog helpers from `_core/visual/forms/dialog.js`
 - lightweight action menus use the shared popover positioning helper from `_core/visual/chrome/popover.js`
+- the floating root and its compact action menu reserve effectively topmost z-index bands so routed content and dynamically rendered surfaces do not obstruct the overlay controls
+- the compact composer action menu stays hidden through its initial positioning passes, closes when avatar dragging starts, and chooses up or down placement from the trigger button midpoint against the 50% viewport line rather than reusing the UI bubble breakpoint
 - the loop supports queued follow-up submissions, stop requests, attachment revalidation, and animation-frame streaming patches
+- `space.skills.load("<path>")` loads onscreen skills on demand using skill ids relative to `ext/skills/` and excluding the trailing `/skill.md`
+- only top-level skills are injected into the prompt catalog by default; routing skills can direct the agent to deeper skill ids
+- loaded onscreen skills are captured as execution-side effects and inserted into the user-side execution-output message with the full skill file content, even when the JavaScript block uses plain `await space.skills.load(...)` without a final `return`
+- skill discovery uses the app-file permission model plus layered owner-scope ordering, and same-module layered overrides replace lower-ranked skill files before the catalog is built
+- readable group-scoped modules such as `L0/_admin/mod/...` may contribute additional onscreen skills; those skills are visible only to users who can read that group root
+- skill ids must be unique across readable modules; conflicting ids are omitted from the prompt catalog and load attempts fail with an ambiguity error
 
 ## Development Guidance
 
 - keep overlay-specific behavior local to this module
-- do not import `_core/chat` or admin-agent internals for convenience
+- do not import admin-agent internals for convenience
 - use the router overlay seam rather than reaching around the router shell
-- if you change the router overlay contract, persistence paths, or prompt execution behavior, update this file and the relevant parent docs in the same session
+- keep onscreen skill discovery and runtime behavior separate from the admin agent even when copying skill content for starter coverage
+- keep `ext/skills/development/` aligned with the current frontend and read-only backend contracts so the onscreen agent's development guidance does not drift
+- if behavior becomes meaningfully shared with the admin agent, promote it into `_core/framework` or `_core/visual` instead of creating cross-surface dependencies
+- if you change the router overlay contract, persistence paths, skill discovery, or prompt execution behavior, update this file and the relevant parent docs in the same session

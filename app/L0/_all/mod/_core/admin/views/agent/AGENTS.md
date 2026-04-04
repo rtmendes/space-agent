@@ -4,7 +4,7 @@
 
 `_core/admin/views/agent/` owns the admin-side agent surface.
 
-It is a standalone admin module inside `_core/admin/`, with its own prompt files, persistence, attachments, execution loop, settings, and rendering helpers. It should not depend on `_core/chat` or `_core/onscreen_agent` internals.
+It is a standalone admin module inside `_core/admin/`, with its own prompt files, persistence, attachments, execution loop, settings, and rendering helpers. It should not depend on `_core/onscreen_agent` internals.
 
 Documentation is top priority for this surface. After any change under `views/agent/`, update this file and any affected parent docs in the same session.
 
@@ -60,6 +60,7 @@ Current behavior:
 - the surface uses the shared visual dialog helpers and shared thread renderer from `_core/visual`
 - assistant streaming is patched into the existing DOM at animation-frame cadence instead of full-thread rerenders
 - prompt history token counts are tracked, shown in the UI, and used for compaction decisions
+- the composer accepts attachments from either the file picker or direct file drag-and-drop onto the chat box
 - the composer is disabled while compaction is actively running
 - the loop supports stop requests and queued follow-up submissions
 - restored attachment metadata is revalidated against current file availability
@@ -67,6 +68,6 @@ Current behavior:
 ## Development Guidance
 
 - keep all admin-agent-specific runtime logic local to this folder
-- do not import `_core/chat` or `_core/onscreen_agent` internals for convenience
+- do not import `_core/onscreen_agent` internals for convenience
 - prefer shared visual primitives from `_core/visual` for presentation and keep surface behavior here
 - if you change persistence paths, skill discovery, execution protocol, or prompt composition, update this file and the parent admin docs

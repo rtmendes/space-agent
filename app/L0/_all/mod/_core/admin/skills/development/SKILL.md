@@ -18,12 +18,12 @@ Use this skill when the user asks how to build a module, where code should live,
 - Browser modules are namespaced as `mod/<author>/<repo>/...`.
 - A first-party module usually lives at `app/L0/_all/mod/_core/<feature>/`.
 - Keep real implementation files in the module folder.
-- Keep `ext/` files thin. They should usually mount a real component or provide a hook file, not hold the whole feature.
+- Keep `ext/html/` adapter files and `ext/js/` hook files thin. They should usually mount a real component or provide a focused hook, not hold the whole feature.
 
 ## How The Frontend Composes
 
 1. Page shells in `server/pages/` stay thin and expose `<x-extension id="...">` anchors.
-2. Matching HTML extension files live under `mod/<author>/<repo>/ext/<anchor>/...`.
+2. Matching HTML extension files live under `mod/<author>/<repo>/ext/html/<anchor>/...`.
 3. Those extension files usually mount a real component with `<x-component path="/mod/...">`.
 4. `<x-component>` loads the component HTML, styles, scripts, and nested components.
 5. Alpine stores and small module utilities own the behavior.
@@ -50,6 +50,7 @@ Example pattern:
 - Use `space.extend(import.meta, async function name(...) { ... })` for behavioral extension seams.
 - `/start` hook files run before the wrapped function.
 - `/end` hook files run after the wrapped function.
+- JS hook files live under `mod/<author>/<repo>/ext/js/<extension-point>/...`.
 - Use HTML anchors for structural seams and `space.extend(...)` for behavioral seams.
 
 ## Layer Resolution And Overrides
@@ -63,7 +64,7 @@ Example pattern:
 ## Practical Workflow
 
 - For a new repo-owned feature, create a module under `app/L0/_all/mod/_core/<feature>/`.
-- Add a thin `ext/.../*.html` adapter that mounts the feature into an existing anchor.
+- Add a thin `ext/html/.../*.html` adapter that mounts the feature into an existing anchor.
 - Put surface markup in component HTML, surface styling in a nearby stylesheet, and behavior in a store module plus small utilities.
 - Keep page shells minimal and avoid bypassing the extension system.
 - When the task needs more detail, treat `app/AGENTS.md` as the canonical deep reference for layers, components, hooks, and ordering.

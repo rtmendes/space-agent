@@ -1,3 +1,5 @@
+import { isSingleUserApp } from "../lib/utils/runtime_params.js";
+
 export const allowAnonymous = true;
 
 function createHttpError(message, statusCode) {
@@ -7,6 +9,10 @@ function createHttpError(message, statusCode) {
 }
 
 export function post(context) {
+  if (isSingleUserApp(context.runtimeParams)) {
+    throw createHttpError("Password login is disabled in single-user mode.", 403);
+  }
+
   const payload =
     context.body && typeof context.body === "object" && !Buffer.isBuffer(context.body)
       ? context.body
@@ -19,6 +25,6 @@ export function post(context) {
       username: payload.username
     });
   } catch (error) {
-    throw createHttpError(error.message || "Login challenge failed.", 401);
+    throw createHttpError(error.message || "Login challenge failed.", Number(error.statusCode) || 401);
   }
 }

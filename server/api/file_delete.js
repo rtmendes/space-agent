@@ -23,6 +23,7 @@ async function handleDelete(context) {
       path: readPath(context),
       paths: payload.paths,
       projectRoot: context.projectRoot,
+      runtimeParams: context.runtimeParams,
       username: context.user?.username,
       watchdog: context.watchdog
     };

@@ -1,4 +1,5 @@
 import { globToRegExp, normalizePathSegment } from "../utils/app_files.js";
+import { createRuntimeGroupIndex } from "./group_runtime.js";
 import { parseProjectModuleExtensionFilePath } from "./layout.js";
 import { collectAccessibleModuleEntries, compareRankedEntries } from "./overrides.js";
 
@@ -25,7 +26,7 @@ function matchesExtensionPattern(entry, compiledPatterns) {
 }
 
 function listResolvedExtensionRequestPathGroups(options = {}) {
-  const { maxLayer, requests = [], username, watchdog } = options;
+  const { maxLayer, requests = [], runtimeParams, username, watchdog } = options;
 
   if (!watchdog || typeof watchdog.getPaths !== "function") {
     return Object.create(null);
@@ -54,7 +55,10 @@ function listResolvedExtensionRequestPathGroups(options = {}) {
   }
 
   const accessibleEntries = collectAccessibleModuleEntries(watchdog.getPaths(), {
-    groupIndex: typeof watchdog.getIndex === "function" ? watchdog.getIndex("group_index") : null,
+    groupIndex:
+      typeof watchdog.getIndex === "function"
+        ? createRuntimeGroupIndex(watchdog.getIndex("group_index"), runtimeParams)
+        : null,
     maxLayer,
     parseProjectPath: parseProjectModuleExtensionFilePath,
     username
@@ -86,7 +90,7 @@ function listResolvedExtensionRequestPathGroups(options = {}) {
 }
 
 function listResolvedExtensionRequestPaths(options = {}) {
-  const { maxLayer, patterns = [], username, watchdog } = options;
+  const { maxLayer, patterns = [], runtimeParams, username, watchdog } = options;
   const results = listResolvedExtensionRequestPathGroups({
     maxLayer,
     requests: [
@@ -95,6 +99,7 @@ function listResolvedExtensionRequestPaths(options = {}) {
         patterns
       }
     ],
+    runtimeParams,
     username,
     watchdog
   });

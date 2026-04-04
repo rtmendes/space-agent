@@ -1,3 +1,4 @@
+import fs from "node:fs/promises";
 import path from "node:path";
 
 import { sendFile, sendJson, sendNotFound, sendRedirect } from "./responses.js";
@@ -10,6 +11,7 @@ const LEGACY_ROUTE_REDIRECTS = new Map([
 
 const LOGOUT_ROUTE = "/logout";
 const PAGE_RESOURCE_PREFIX = "/pages/res/";
+const FRONTEND_CONFIG_META_NAME = "space-config";
 
 function createSessionCleanupHeaders(requestContext, auth) {
   if (
@@ -33,6 +35,66 @@ function createClearedSessionHeaders(auth) {
   }
 
   return {};
+}
+
+function escapeHtmlAttribute(value) {
+  return String(value ?? "")
+    .replace(/&/gu, "&amp;")
+    .replace(/"/gu, "&quot;")
+    .replace(/</gu, "&lt;")
+    .replace(/>/gu, "&gt;");
+}
+
+function buildFrontendConfigMetaTags(runtimeParams) {
+  const entries =
+    runtimeParams && typeof runtimeParams.listFrontendExposed === "function"
+      ? runtimeParams.listFrontendExposed()
+      : [];
+
+  if (entries.length === 0) {
+    return "";
+  }
+
+  return entries
+    .map(
+      (entry) =>
+        `    <meta name="${FRONTEND_CONFIG_META_NAME}" data-space-param="${escapeHtmlAttribute(entry.name)}" data-space-type="${escapeHtmlAttribute(entry.type)}" content="${escapeHtmlAttribute(entry.content)}" />`
+    )
+    .join("\n");
+}
+
+function injectFrontendConfigMetaTags(sourceText, runtimeParams) {
+  const metaTags = buildFrontendConfigMetaTags(runtimeParams);
+
+  if (!metaTags) {
+    return sourceText;
+  }
+
+  if (/<\/head>/iu.test(sourceText)) {
+    return sourceText.replace(/<\/head>/iu, `${metaTags}\n  </head>`);
+  }
+
+  return `${metaTags}\n${sourceText}`;
+}
+
+async function sendPageHtml(res, filePath, options = {}) {
+  let sourceText;
+
+  try {
+    sourceText = await fs.readFile(filePath, "utf8");
+  } catch {
+    sendNotFound(res, options.headers);
+    return;
+  }
+
+  const body = injectFrontendConfigMetaTags(sourceText, options.runtimeParams);
+
+  res.writeHead(200, {
+    ...(options.headers || {}),
+    "Content-Length": Buffer.byteLength(body),
+    "Content-Type": "text/html; charset=utf-8"
+  });
+  res.end(body);
 }
 
 async function handleLogoutRequest(res, options = {}) {
@@ -121,7 +183,7 @@ function resolvePageResourceRequest(pagesDir, pathname) {
 }
 
 async function handlePageRequest(res, requestUrl, options = {}) {
-  const { auth, pagesDir, requestContext } = options;
+  const { auth, pagesDir, requestContext, runtimeParams } = options;
 
   if (requestUrl.pathname === LOGOUT_ROUTE) {
     await handleLogoutRequest(res, options);
@@ -171,8 +233,9 @@ async function handlePageRequest(res, requestUrl, options = {}) {
     return;
   }
 
-  sendFile(res, pageRequest.filePath, {
-    headers: createSessionCleanupHeaders(requestContext, auth)
+  await sendPageHtml(res, pageRequest.filePath, {
+    headers: createSessionCleanupHeaders(requestContext, auth),
+    runtimeParams
   });
 }
 

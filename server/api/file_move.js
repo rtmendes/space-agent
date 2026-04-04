@@ -18,6 +18,7 @@ export async function post(context) {
       entries: payload.entries,
       fromPath: String(payload.fromPath || context.params.fromPath || ""),
       projectRoot: context.projectRoot,
+      runtimeParams: context.runtimeParams,
       toPath: String(payload.toPath || context.params.toPath || ""),
       username: context.user?.username,
       watchdog: context.watchdog

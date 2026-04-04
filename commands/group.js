@@ -3,6 +3,7 @@ import {
   createGroup,
   removeGroupEntry
 } from "../server/lib/customware/group_files.js";
+import { createRuntimeParams } from "../server/lib/utils/runtime_params.js";
 
 function takeFlagValue(args, index, flagName) {
   const value = String(args[index + 1] || "");
@@ -124,11 +125,11 @@ export const help = {
     "node space group remove <group-id> <user|group> <id> [--manager]"
   ],
   description:
-    "Creates and updates writable L1 group directories under app/L1. This command never writes L0 firmware groups. Use it to create a group, add users or groups to included_* lists, and manage managing_* lists in group.yaml.",
+    "Creates and updates writable L1 group directories. When CUSTOMWARE_PATH is configured they are stored under CUSTOMWARE_PATH/L1 instead of app/L1. This command never writes L0 firmware groups.",
   arguments: [
     {
       name: "<group-id>",
-      description: "Target group id. The command writes app/L1/<group-id>/group.yaml and app/L1/<group-id>/mod/."
+      description: "Target group id. The command writes the logical L1/<group-id>/group.yaml and L1/<group-id>/mod/ paths."
     },
     {
       name: "<user|group>",
@@ -142,7 +143,7 @@ export const help = {
   options: [
     {
       flag: "create",
-      description: "Create app/L1/<group-id>/ with mod/ and group.yaml."
+      description: "Create the logical L1/<group-id>/ root with mod/ and group.yaml."
     },
     {
       flag: "add",
@@ -173,11 +174,15 @@ export const help = {
 export async function execute(context) {
   const subcommand = String(context.args[0] || "").trim().toLowerCase();
   const subcommandArgs = context.args.slice(1);
+  const runtimeParams = await createRuntimeParams(context.projectRoot, {
+    env: context.originalEnv
+  });
 
   if (subcommand === "create") {
     const options = parseCreateArgs(subcommandArgs);
     const result = createGroup(context.projectRoot, options.groupId, {
-      force: options.force
+      force: options.force,
+      runtimeParams
     });
     console.log(`Created group ${result.layer}/${result.groupId}`);
     return 0;
@@ -191,7 +196,8 @@ export async function execute(context) {
       options.entryType,
       options.entryId,
       {
-        manager: options.manager
+        manager: options.manager,
+        runtimeParams
       }
     );
     console.log(
@@ -208,7 +214,8 @@ export async function execute(context) {
       options.entryType,
       options.entryId,
       {
-        manager: options.manager
+        manager: options.manager,
+        runtimeParams
       }
     );
     console.log(

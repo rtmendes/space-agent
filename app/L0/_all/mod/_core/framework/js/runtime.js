@@ -4,6 +4,7 @@ import { downloadProxiedFile } from "./download.js";
 import { installFetchProxy } from "./fetch-proxy.js";
 import * as markdown from "./markdown-frontmatter.js";
 import { buildProxyUrl, isProxyableExternalUrl } from "./proxy-url.js";
+import { getFrontendServerConfigValues } from "./server-config.js";
 import * as yaml from "./yaml-lite.js";
 
 export function initializeRuntime(options = {}) {
@@ -13,6 +14,8 @@ export function initializeRuntime(options = {}) {
   installFetchProxy({ proxyPath });
   const api = createApiClient({ basePath: apiBasePath });
   const previousRuntime = globalThis.space && typeof globalThis.space === "object" ? globalThis.space : {};
+  const previousConfig =
+    previousRuntime.config && typeof previousRuntime.config === "object" ? previousRuntime.config : {};
   const previousFw =
     previousRuntime.fw && typeof previousRuntime.fw === "object" ? previousRuntime.fw : {};
   const previousUtils =
@@ -21,11 +24,30 @@ export function initializeRuntime(options = {}) {
     previousUtils.markdown && typeof previousUtils.markdown === "object" ? previousUtils.markdown : {};
   const previousYamlUtils =
     previousUtils.yaml && typeof previousUtils.yaml === "object" ? previousUtils.yaml : {};
+  const serverConfigValues = getFrontendServerConfigValues();
 
   const runtime = {
     ...previousRuntime,
     api,
     apiBasePath,
+    config: {
+      ...previousConfig,
+      all() {
+        return { ...serverConfigValues };
+      },
+      get(name, fallback = undefined) {
+        const normalizedName = String(name || "").trim().toUpperCase();
+
+        return Object.prototype.hasOwnProperty.call(serverConfigValues, normalizedName)
+          ? serverConfigValues[normalizedName]
+          : fallback;
+      },
+      has(name) {
+        const normalizedName = String(name || "").trim().toUpperCase();
+        return Object.prototype.hasOwnProperty.call(serverConfigValues, normalizedName);
+      },
+      values: serverConfigValues
+    },
     fw: {
       ...previousFw,
       createStore

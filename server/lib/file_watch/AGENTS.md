@@ -2,7 +2,7 @@
 
 ## Purpose
 
-`server/lib/file_watch/` owns the config-driven watchdog and the derived live indexes built from the app tree.
+`server/lib/file_watch/` owns the config-driven watchdog and the derived live indexes built from the logical app tree.
 
 This subtree is the canonical source of the live `path_index`, `group_index`, and `user_index` snapshots used by request routing, module resolution, file access, and auth.
 
@@ -25,9 +25,10 @@ Current files:
 Current rules:
 
 - each top-level key maps directly to `server/lib/file_watch/handlers/<name>.js`
-- each handler config lists the project-path patterns that feed that handler
+- each handler config lists the logical project-path patterns that feed that handler
 - `path_index` is required
 - directory entries in the path index use a trailing slash
+- `watchdog.js` is responsible for mapping those logical `/app/...` patterns onto repo `L0` plus the configured writable `CUSTOMWARE_PATH` roots for `L1` and `L2`
 
 Current default handlers:
 
@@ -39,7 +40,7 @@ Current default handlers:
 
 `path_index`:
 
-- tracks every currently existing file and directory under the watched app tree
+- tracks every currently existing file and directory under the watched logical app tree
 - is the canonical fast lookup for file existence and listing
 
 `group_index`:
@@ -50,7 +51,7 @@ Current default handlers:
 `user_index`:
 
 - is rebuilt from `path_index`
-- derives user metadata, password verifier presence, and active sessions from `L2`
+- derives user metadata, password verifier presence, and active sessions from logical `L2`
 
 Rules:
 

@@ -3,8 +3,6 @@ import { fileURLToPath } from "node:url";
 
 const CURRENT_DIR = path.dirname(fileURLToPath(import.meta.url));
 
-const DEFAULT_HOST = process.env.HOST || "0.0.0.0";
-const DEFAULT_PORT = Number(process.env.PORT || 3000);
 const PROJECT_ROOT = path.join(CURRENT_DIR, "..");
 const APP_ROOT_DIR = path.join(CURRENT_DIR, "..", "app");
 const L0_DIR = path.join(APP_ROOT_DIR, "L0");
@@ -21,8 +19,6 @@ export {
   APP_ROOT_DIR,
   ASSET_DIR,
   APP_DIR,
-  DEFAULT_HOST,
-  DEFAULT_PORT,
   FILE_WATCH_CONFIG_PATH,
   L0_DIR,
   L1_DIR,

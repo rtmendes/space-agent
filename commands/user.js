@@ -1,4 +1,5 @@
 import { createUser, setUserPassword } from "../server/lib/auth/user_manage.js";
+import { createRuntimeParams } from "../server/lib/utils/runtime_params.js";
 
 function takeFlagValue(args, index, flagName) {
   const value = String(args[index + 1] || "");
@@ -93,11 +94,11 @@ export const help = {
     "node space user password <username> --password <password>"
   ],
   description:
-    "Creates L2 users, stores user metadata in user.yaml, stores the password verifier in meta/password.json, and clears existing login sessions in meta/logins.json when the password changes.",
+    "Creates L2 users, stores user metadata in user.yaml, stores the password verifier in meta/password.json, and clears existing login sessions in meta/logins.json when the password changes. When CUSTOMWARE_PATH is configured the writable L2 tree lives under CUSTOMWARE_PATH/L2.",
   arguments: [
     {
       name: "<username>",
-      description: "User id under app/L2/<username>/."
+      description: "User id under the logical L2/<username>/ root, stored under CUSTOMWARE_PATH/L2 when configured."
     }
   ],
   options: [
@@ -132,12 +133,16 @@ export const help = {
 export async function execute(context) {
   const subcommand = String(context.args[0] || "").trim().toLowerCase();
   const subcommandArgs = context.args.slice(1);
+  const runtimeParams = await createRuntimeParams(context.projectRoot, {
+    env: context.originalEnv
+  });
 
   if (subcommand === "create") {
     const options = parseCreateArgs(subcommandArgs);
     const result = createUser(context.projectRoot, options.username, options.password, {
       force: options.force,
-      fullName: options.fullName
+      fullName: options.fullName,
+      runtimeParams
     });
     console.log(`Created user ${result.username}`);
     return 0;
@@ -145,7 +150,9 @@ export async function execute(context) {
 
   if (subcommand === "password" || subcommand === "passwd") {
     const options = parsePasswordArgs(subcommandArgs);
-    const result = setUserPassword(context.projectRoot, options.username, options.password);
+    const result = setUserPassword(context.projectRoot, options.username, options.password, {
+      runtimeParams
+    });
     console.log(`Updated password for ${result.username}`);
     return 0;
   }

@@ -1,7 +1,7 @@
 .onscreen-agent-root {
   position: fixed;
   inset: 0;
-  z-index: 24;
+  z-index: 2147482000;
   pointer-events: none;
   color-scheme: dark;
   --onscreen-agent-avatar-size: 72px;
@@ -77,22 +77,22 @@
   pointer-events: none;
 }
 
-.onscreen-agent-history {
+.onscreen-agent-history-shell {
   position: absolute;
   left: 0;
   top: 0;
+  display: flex;
   box-sizing: border-box;
   width: 100%;
-  max-height: min(24rem, calc(100vh - 180px));
-  overflow: auto;
-  padding: 0.65rem 0.75rem;
+  height: var(--onscreen-agent-history-height, auto);
+  max-height: var(--onscreen-agent-history-max-height);
   border: 1px solid rgba(168, 186, 219, 0.14);
   border-radius: 1.4rem;
   background: rgba(11, 18, 34, 0.46);
   box-shadow: 0 18px 44px rgba(1, 5, 14, 0.24);
   backdrop-filter: blur(20px) saturate(1.08);
   -webkit-backdrop-filter: blur(20px) saturate(1.08);
-  scrollbar-gutter: stable;
+  overflow: hidden;
   pointer-events: auto;
   transform: translate3d(0, calc(-100% - var(--onscreen-agent-history-offset)), 0);
   transition:
@@ -101,7 +101,71 @@
   will-change: transform;
 }
 
-.onscreen-agent-shell.is-history-below .onscreen-agent-history {
+.onscreen-agent-history {
+  flex: 1 1 auto;
+  min-height: 0;
+  width: 100%;
+  overflow: auto;
+  padding: 0.65rem 0.75rem;
+  border-radius: inherit;
+  scrollbar-gutter: stable;
+}
+
+.onscreen-agent-history-resize-handle {
+  position: absolute;
+  left: 50%;
+  z-index: 1;
+  width: min(5.5rem, calc(100% - 1.5rem));
+  height: 16px;
+  border: 0;
+  background: transparent;
+  cursor: ns-resize;
+  touch-action: none;
+  transform: translateX(-50%);
+}
+
+.onscreen-agent-shell:not(.is-history-below) .onscreen-agent-history-resize-handle {
+  top: 0;
+}
+
+.onscreen-agent-shell.is-history-below .onscreen-agent-history-resize-handle {
+  bottom: 0;
+}
+
+.onscreen-agent-history-resize-handle::before,
+.onscreen-agent-history-resize-handle::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  border-radius: 999px;
+  transition:
+    background-color 120ms ease,
+    opacity 120ms ease;
+}
+
+.onscreen-agent-history-resize-handle::before {
+  top: 7px;
+  width: 2.4rem;
+  height: 1px;
+  background: rgba(168, 186, 219, 0.22);
+}
+
+.onscreen-agent-history-resize-handle::after {
+  top: 5.5px;
+  width: 1.2rem;
+  height: 4px;
+  background: rgba(168, 186, 219, 0.5);
+}
+
+.onscreen-agent-history-resize-handle:hover::before,
+.onscreen-agent-history-resize-handle:hover::after,
+.onscreen-agent-history-resize-handle:active::before,
+.onscreen-agent-history-resize-handle:active::after {
+  background: rgba(168, 186, 219, 0.72);
+}
+
+.onscreen-agent-shell.is-history-below .onscreen-agent-history-shell {
   top: 100%;
   transform: translate3d(0, var(--onscreen-agent-history-offset), 0);
 }
@@ -339,11 +403,16 @@
 }
 
 .onscreen-agent-panel {
+  position: relative;
   border: 1px solid var(--onscreen-agent-border);
   background: var(--onscreen-agent-panel-bg);
   box-shadow: var(--onscreen-agent-panel-shadow);
   backdrop-filter: blur(18px) saturate(1.08);
   -webkit-backdrop-filter: blur(18px) saturate(1.08);
+  transition:
+    border-color 140ms ease,
+    background-color 140ms ease,
+    box-shadow 140ms ease;
 }
 
 .onscreen-agent-panel {
@@ -359,6 +428,30 @@
   gap: 0.44rem;
   padding: 0.58rem 0.66rem 0.62rem;
   border-radius: 1.18rem;
+}
+
+.onscreen-agent-panel.is-attachment-drag-active {
+  border-color: rgba(148, 188, 255, 0.42);
+  background: rgba(16, 27, 45, 0.94);
+  box-shadow:
+    0 0 0 1px rgba(148, 188, 255, 0.18),
+    var(--onscreen-agent-panel-shadow);
+}
+
+.onscreen-agent-panel.is-attachment-drag-active::after {
+  content: "Drop files to attach";
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  border-radius: inherit;
+  background: rgba(7, 13, 24, 0.64);
+  color: var(--color-accent-primary);
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  pointer-events: none;
 }
 
 .onscreen-agent-composer {
@@ -568,6 +661,10 @@
   min-width: 198px;
 }
 
+.onscreen-agent-popover-layer {
+  z-index: 2147483000;
+}
+
 @keyframes onscreen-agent-avatar-float {
   0% {
     transform: translate3d(0, 0, 0) rotate(-6deg);
@@ -629,10 +726,6 @@
     --onscreen-agent-ui-bubble-offset-above: 44px;
     --onscreen-agent-ui-bubble-offset-below: 44px;
     --onscreen-agent-ui-bubble-max-width: min(20em, calc(100vw - 88px));
-  }
-
-  .onscreen-agent-history {
-    max-height: min(18rem, calc(100vh - 170px));
   }
 
   .composer-attachments {

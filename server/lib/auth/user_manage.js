@@ -63,7 +63,8 @@ function createUser(projectRoot, username, password, options = {}) {
     throw new Error(`Invalid username: ${String(username || "")}`);
   }
 
-  const userDir = buildUserAbsolutePath(projectRoot, normalizedUsername);
+  const runtimeParams = options.runtimeParams || null;
+  const userDir = buildUserAbsolutePath(projectRoot, normalizedUsername, "", runtimeParams);
 
   if (fs.existsSync(userDir)) {
     if (!options.force) {
@@ -73,12 +74,17 @@ function createUser(projectRoot, username, password, options = {}) {
     fs.rmSync(userDir, { force: true, recursive: true });
   }
 
-  ensureUserStructure(projectRoot, normalizedUsername);
+  ensureUserStructure(projectRoot, normalizedUsername, runtimeParams);
   writeUserConfig(projectRoot, normalizedUsername, {
     full_name: normalizeFullName(options.fullName, normalizedUsername)
-  });
-  writeUserPasswordVerifier(projectRoot, normalizedUsername, createPasswordVerifier(password));
-  writeUserLogins(projectRoot, normalizedUsername, {});
+  }, runtimeParams);
+  writeUserPasswordVerifier(
+    projectRoot,
+    normalizedUsername,
+    createPasswordVerifier(password),
+    runtimeParams
+  );
+  writeUserLogins(projectRoot, normalizedUsername, {}, runtimeParams);
 
   return {
     userDir,
@@ -86,28 +92,34 @@ function createUser(projectRoot, username, password, options = {}) {
   };
 }
 
-function setUserPassword(projectRoot, username, password) {
+function setUserPassword(projectRoot, username, password, options = {}) {
   const normalizedUsername = normalizeUsername(username);
+  const runtimeParams = options.runtimeParams || null;
 
   if (!normalizedUsername) {
     throw new Error(`Invalid username: ${String(username || "")}`);
   }
 
-  const currentConfig = readUserConfig(projectRoot, normalizedUsername);
-  const userDir = buildUserAbsolutePath(projectRoot, normalizedUsername);
+  const currentConfig = readUserConfig(projectRoot, normalizedUsername, runtimeParams);
+  const userDir = buildUserAbsolutePath(projectRoot, normalizedUsername, "", runtimeParams);
 
   if (!fs.existsSync(userDir)) {
     throw new Error(`User does not exist: ${normalizedUsername}`);
   }
 
-  ensureUserStructure(projectRoot, normalizedUsername);
+  ensureUserStructure(projectRoot, normalizedUsername, runtimeParams);
 
   writeUserConfig(projectRoot, normalizedUsername, {
     ...removeLegacyPasswordFields(currentConfig),
     full_name: normalizeFullName(currentConfig.full_name, normalizedUsername)
-  });
-  writeUserPasswordVerifier(projectRoot, normalizedUsername, createPasswordVerifier(password));
-  writeUserLogins(projectRoot, normalizedUsername, {});
+  }, runtimeParams);
+  writeUserPasswordVerifier(
+    projectRoot,
+    normalizedUsername,
+    createPasswordVerifier(password),
+    runtimeParams
+  );
+  writeUserLogins(projectRoot, normalizedUsername, {}, runtimeParams);
 
   return {
     userDir,
@@ -117,6 +129,7 @@ function setUserPassword(projectRoot, username, password) {
 
 function createGuestUser(projectRoot, options = {}) {
   const password = String(options.password || createRandomString(GENERATED_PASSWORD_LENGTH, GENERATED_PASSWORD_ALPHABET));
+  const runtimeParams = options.runtimeParams || null;
 
   for (let attempt = 0; attempt < GUEST_CREATION_MAX_ATTEMPTS; attempt += 1) {
     const username = `${GUEST_USERNAME_PREFIX}${createRandomString(
@@ -124,12 +137,12 @@ function createGuestUser(projectRoot, options = {}) {
       GUEST_USERNAME_ALPHABET
     )}`;
 
-    if (fs.existsSync(buildUserAbsolutePath(projectRoot, username))) {
+    if (fs.existsSync(buildUserAbsolutePath(projectRoot, username, "", runtimeParams))) {
       continue;
     }
 
     try {
-      createUser(projectRoot, username, password);
+      createUser(projectRoot, username, password, { runtimeParams });
     } catch (error) {
       if (String(error?.message || "").startsWith("User already exists:")) {
         continue;

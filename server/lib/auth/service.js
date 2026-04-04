@@ -1,6 +1,10 @@
 import { randomBytes } from "node:crypto";
 
 import { normalizeEntityId } from "../customware/layout.js";
+import {
+  SINGLE_USER_APP_USERNAME,
+  isSingleUserApp
+} from "../utils/runtime_params.js";
 import { createEmptyUserIndex } from "./user_index.js";
 import { verifyLoginProof } from "./passwords.js";
 import { readUserLogins, writeUserLogins } from "./user_files.js";
@@ -17,6 +21,18 @@ function createAnonymousUser(overrides = {}) {
     shouldClearSessionCookie: false,
     source: "anonymous",
     username: "",
+    ...overrides
+  };
+}
+
+function createSingleUser(overrides = {}) {
+  return {
+    isAuthenticated: true,
+    session: null,
+    sessionToken: "",
+    shouldClearSessionCookie: false,
+    source: "single-user-app",
+    username: SINGLE_USER_APP_USERNAME,
     ...overrides
   };
 }
@@ -87,6 +103,7 @@ function getRemoteAddress(req) {
 
 export function createAuthService(options = {}) {
   const projectRoot = String(options.projectRoot || "");
+  const runtimeParams = options.runtimeParams || null;
   const watchdog = options.watchdog || null;
   const challenges = new Map();
   // TODO: Replace this local file-backed session store with the future full auth system,
@@ -102,6 +119,10 @@ export function createAuthService(options = {}) {
   }
 
   function resolveUserFromCookies(cookies = {}) {
+    if (isSingleUserApp(runtimeParams)) {
+      return createSingleUser();
+    }
+
     const sessionToken = String(cookies[SESSION_COOKIE_NAME] || "").trim();
 
     if (!sessionToken) {
@@ -141,6 +162,10 @@ export function createAuthService(options = {}) {
   }
 
   function createLoginChallenge({ req, username, clientNonce }) {
+    if (isSingleUserApp(runtimeParams)) {
+      throw new Error("Password login is disabled in single-user mode.");
+    }
+
     cleanupExpiredChallenges(challenges);
 
     const normalizedUsername = normalizeEntityId(username);
@@ -175,6 +200,10 @@ export function createAuthService(options = {}) {
   }
 
   async function completeLogin({ challengeToken, clientProof, req }) {
+    if (isSingleUserApp(runtimeParams)) {
+      throw new Error("Password login is disabled in single-user mode.");
+    }
+
     cleanupExpiredChallenges(challenges);
 
     const normalizedChallengeToken = String(challengeToken || "").trim();
@@ -211,7 +240,7 @@ export function createAuthService(options = {}) {
     }
 
     const sessionToken = createSessionToken();
-    const logins = readUserLogins(projectRoot, challenge.username);
+    const logins = readUserLogins(projectRoot, challenge.username, runtimeParams);
 
     logins[sessionToken] = {
       createdAt: new Date().toISOString(),
@@ -219,7 +248,7 @@ export function createAuthService(options = {}) {
       userAgent: String(req?.headers?.["user-agent"] || "")
     };
 
-    writeUserLogins(projectRoot, challenge.username, logins);
+    writeUserLogins(projectRoot, challenge.username, logins, runtimeParams);
 
     if (watchdog && typeof watchdog.refresh === "function") {
       await watchdog.refresh();
@@ -233,6 +262,10 @@ export function createAuthService(options = {}) {
   }
 
   async function revokeSession(sessionToken, username = "") {
+    if (isSingleUserApp(runtimeParams)) {
+      return false;
+    }
+
     const normalizedSessionToken = String(sessionToken || "").trim();
     const normalizedUsername = normalizeEntityId(username);
 
@@ -240,14 +273,14 @@ export function createAuthService(options = {}) {
       return false;
     }
 
-    const logins = readUserLogins(projectRoot, normalizedUsername);
+    const logins = readUserLogins(projectRoot, normalizedUsername, runtimeParams);
 
     if (!Object.prototype.hasOwnProperty.call(logins, normalizedSessionToken)) {
       return false;
     }
 
     delete logins[normalizedSessionToken];
-    writeUserLogins(projectRoot, normalizedUsername, logins);
+    writeUserLogins(projectRoot, normalizedUsername, logins, runtimeParams);
 
     if (watchdog && typeof watchdog.refresh === "function") {
       await watchdog.refresh();

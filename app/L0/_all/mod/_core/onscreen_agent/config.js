@@ -10,6 +10,16 @@ export const DEFAULT_ONSCREEN_AGENT_SETTINGS = {
   paramsText: "temperature:0.2"
 };
 
+export function normalizeOnscreenAgentHistoryHeight(value) {
+  const parsedValue = Number(value);
+
+  if (!Number.isFinite(parsedValue) || parsedValue <= 0) {
+    return null;
+  }
+
+  return Math.round(parsedValue);
+}
+
 function normalizeMaxTokensText(value) {
   return String(value ?? "")
     .trim()

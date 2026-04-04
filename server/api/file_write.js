@@ -19,6 +19,7 @@ export async function post(context) {
       encoding: String(payload.encoding || "utf8"),
       path: String(payload.path || context.params.path || ""),
       projectRoot: context.projectRoot,
+      runtimeParams: context.runtimeParams,
       username: context.user?.username,
       watchdog: context.watchdog
     };

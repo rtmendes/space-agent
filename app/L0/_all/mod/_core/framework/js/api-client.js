@@ -98,10 +98,41 @@
 
 /**
  * @typedef {{
+ *   editable: boolean,
+ *   repoRoots: string[]
+ * }} UserSelfInfoBackendScope
+ */
+
+/**
+ * @typedef {{
+ *   editable: boolean,
+ *   preferredWritableModuleRoots: string[],
+ *   readOnlyLayers: string[],
+ *   readableModuleRoots: string[],
+ *   readableRoots: string[],
+ *   repoRoots: string[],
+ *   writableLayers: string[],
+ *   writableModuleRootPatterns: string[],
+ *   writableModuleRoots: string[],
+ *   writableRootPatterns: string[],
+ *   writableRoots: string[]
+ * }} UserSelfInfoFrontendScope
+ */
+
+/**
+ * @typedef {{
+ *   backend: UserSelfInfoBackendScope,
+ *   frontend: UserSelfInfoFrontendScope
+ * }} UserSelfInfoScope
+ */
+
+/**
+ * @typedef {{
  *   fullName: string,
  *   groups: string[],
  *   isAdmin: boolean,
  *   managedGroups: string[],
+ *   scope: UserSelfInfoScope,
  *   username: string
  * }} UserSelfInfoResult
  */

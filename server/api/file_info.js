@@ -16,6 +16,7 @@ function handleInfo(context) {
     return getAppPathInfo({
       path: readPath(context),
       projectRoot: context.projectRoot,
+      runtimeParams: context.runtimeParams,
       username: context.user?.username,
       watchdog: context.watchdog
     });

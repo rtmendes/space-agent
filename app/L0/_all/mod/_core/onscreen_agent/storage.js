@@ -11,12 +11,29 @@ function normalizeDisplayMode(value) {
   return "";
 }
 
+function normalizeStoredCoordinate(value) {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+
+  if (typeof value === "string" && value.trim()) {
+    const parsedValue = Number(value);
+
+    if (Number.isFinite(parsedValue)) {
+      return parsedValue;
+    }
+  }
+
+  return null;
+}
+
 function createDefaultConfig() {
   return {
     settings: { ...config.DEFAULT_ONSCREEN_AGENT_SETTINGS },
     systemPrompt: "",
     agentX: null,
     agentY: null,
+    historyHeight: null,
     displayMode: DISPLAY_MODE_COMPACT
   };
 }
@@ -56,7 +73,14 @@ function normalizeStoredConfig(parsedConfig) {
     storedConfig.max_tokens ?? storedConfig.maxTokens ?? config.DEFAULT_ONSCREEN_AGENT_SETTINGS.maxTokens;
   const rawX = storedConfig.agent_x ?? storedConfig.agentX;
   const rawY = storedConfig.agent_y ?? storedConfig.agentY;
+  const rawHistoryHeight = storedConfig.history_height ?? storedConfig.historyHeight;
   const storedDisplayMode = normalizeDisplayMode(storedConfig.display_mode ?? storedConfig.displayMode);
+  const legacyDisplayMode =
+    storedConfig.collapsed === true
+      ? DISPLAY_MODE_COMPACT
+      : storedConfig.collapsed === false
+        ? DISPLAY_MODE_FULL
+        : "";
 
   return {
     settings: {
@@ -73,15 +97,17 @@ function normalizeStoredConfig(parsedConfig) {
         storedConfig.systemPrompt ||
         ""
     ).trim(),
-    agentX: typeof rawX === "number" && Number.isFinite(rawX) ? rawX : null,
-    agentY: typeof rawY === "number" && Number.isFinite(rawY) ? rawY : null,
-    displayMode: storedDisplayMode || (storedConfig.collapsed === true ? DISPLAY_MODE_COMPACT : DISPLAY_MODE_FULL)
+    agentX: normalizeStoredCoordinate(rawX),
+    agentY: normalizeStoredCoordinate(rawY),
+    historyHeight: config.normalizeOnscreenAgentHistoryHeight(rawHistoryHeight),
+    displayMode: storedDisplayMode || legacyDisplayMode || DISPLAY_MODE_COMPACT
   };
 }
 
-function buildStoredConfigPayload({ settings, systemPrompt, agentX, agentY, displayMode }) {
+function buildStoredConfigPayload({ settings, systemPrompt, agentX, agentY, historyHeight, displayMode }) {
   const normalizedSystemPrompt = typeof systemPrompt === "string" ? systemPrompt.trim() : "";
   const normalizedDisplayMode = normalizeDisplayMode(displayMode) || DISPLAY_MODE_COMPACT;
+  const normalizedHistoryHeight = config.normalizeOnscreenAgentHistoryHeight(historyHeight);
   const payload = {
     api_endpoint: String(settings?.apiEndpoint || config.DEFAULT_ONSCREEN_AGENT_SETTINGS.apiEndpoint || "").trim(),
     api_key: String(settings?.apiKey || config.DEFAULT_ONSCREEN_AGENT_SETTINGS.apiKey || "").trim(),
@@ -89,7 +115,7 @@ function buildStoredConfigPayload({ settings, systemPrompt, agentX, agentY, disp
     model: String(settings?.model || config.DEFAULT_ONSCREEN_AGENT_SETTINGS.model || "").trim(),
     params: String(settings?.paramsText || config.DEFAULT_ONSCREEN_AGENT_SETTINGS.paramsText || "").trim(),
     display_mode: normalizedDisplayMode,
-    collapsed: false
+    collapsed: normalizedDisplayMode === DISPLAY_MODE_COMPACT
   };
 
   if (typeof agentX === "number" && Number.isFinite(agentX)) {
@@ -98,6 +124,10 @@ function buildStoredConfigPayload({ settings, systemPrompt, agentX, agentY, disp
 
   if (typeof agentY === "number" && Number.isFinite(agentY)) {
     payload.agent_y = Math.round(agentY);
+  }
+
+  if (normalizedHistoryHeight !== null) {
+    payload.history_height = normalizedHistoryHeight;
   }
 
   if (normalizedSystemPrompt) {

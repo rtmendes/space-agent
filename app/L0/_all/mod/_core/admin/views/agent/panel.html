@@ -10,6 +10,8 @@
         <section
           class="admin-agent-surface"
           x-cloak
+          @dragend.window="$store.adminAgent.resetAttachmentDragState()"
+          @drop.window="$store.adminAgent.resetAttachmentDragState()"
           x-init="$nextTick(() => $store.adminAgent.mount({ attachmentInput: $refs.attachmentInput, historyDialog: $refs.historyDialog, input: $refs.input, rawDialog: $refs.rawDialog, scroller: $refs.scroller, settingsDialog: $refs.settingsDialog, systemDialog: $refs.systemDialog, thread: $refs.thread }))"
           x-destroy="$store.adminAgent.unmount()"
         >
@@ -63,7 +65,15 @@
                 </button>
               </div>
             </div>
-            <form class="chat-composer" @submit.prevent="$store.adminAgent.handleComposerPrimaryAction()">
+            <form
+              class="chat-composer"
+              :class="{ 'is-attachment-drag-active': $store.adminAgent.isAttachmentDragActive }"
+              @submit.prevent="$store.adminAgent.handleComposerPrimaryAction()"
+              @dragenter="$store.adminAgent.handleAttachmentDragEnter($event)"
+              @dragover="$store.adminAgent.handleAttachmentDragOver($event)"
+              @dragleave="$store.adminAgent.handleAttachmentDragLeave($event)"
+              @drop="$store.adminAgent.handleAttachmentDrop($event)"
+            >
               <input
                 x-ref="attachmentInput"
                 type="file"

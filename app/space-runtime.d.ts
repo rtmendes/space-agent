@@ -82,11 +82,36 @@ type SpaceHealthResult = {
   responsibilities: string[];
 };
 
+type SpaceUserSelfInfoBackendScope = {
+  editable: boolean;
+  repoRoots: string[];
+};
+
+type SpaceUserSelfInfoFrontendScope = {
+  editable: boolean;
+  preferredWritableModuleRoots: string[];
+  readOnlyLayers: string[];
+  readableModuleRoots: string[];
+  readableRoots: string[];
+  repoRoots: string[];
+  writableLayers: string[];
+  writableModuleRootPatterns: string[];
+  writableModuleRoots: string[];
+  writableRootPatterns: string[];
+  writableRoots: string[];
+};
+
+type SpaceUserSelfInfoScope = {
+  backend: SpaceUserSelfInfoBackendScope;
+  frontend: SpaceUserSelfInfoFrontendScope;
+};
+
 type SpaceUserSelfInfo = {
   fullName: string;
   groups: string[];
   isAdmin: boolean;
   managedGroups: string[];
+  scope: SpaceUserSelfInfoScope;
   username: string;
 };
 

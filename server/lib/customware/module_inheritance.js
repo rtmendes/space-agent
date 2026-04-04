@@ -1,7 +1,10 @@
-import path from "node:path";
-
+import { createRuntimeGroupIndex } from "./group_runtime.js";
 import { isProjectPathWithinMaxLayer } from "./layer_limit.js";
-import { normalizeModuleRequestPath, parseProjectModuleFilePath } from "./layout.js";
+import {
+  normalizeModuleRequestPath,
+  parseProjectModuleFilePath,
+  resolveProjectAbsolutePath
+} from "./layout.js";
 import { createEmptyGroupIndex, filterAccessibleModulePaths } from "./overrides.js";
 
 function findCandidateModuleProjectPaths(watchdog, requestPath, maxLayer) {
@@ -21,6 +24,7 @@ function resolveInheritedModuleProjectPath({
   maxLayer,
   projectRoot,
   requestPath,
+  runtimeParams,
   username,
   watchdog
 }) {
@@ -32,7 +36,7 @@ function resolveInheritedModuleProjectPath({
 
   const groupIndex =
     typeof watchdog.getIndex === "function"
-      ? watchdog.getIndex("group_index")
+      ? createRuntimeGroupIndex(watchdog.getIndex("group_index"), runtimeParams)
       : createEmptyGroupIndex();
   const candidatePaths = findCandidateModuleProjectPaths(watchdog, normalizedRequestPath, maxLayer);
   const accessiblePaths = filterAccessibleModulePaths(candidatePaths, username, groupIndex, {
@@ -45,7 +49,7 @@ function resolveInheritedModuleProjectPath({
   }
 
   return {
-    absolutePath: path.join(projectRoot, selectedProjectPath.slice(1)),
+    absolutePath: resolveProjectAbsolutePath(projectRoot, selectedProjectPath, runtimeParams),
     candidatePaths,
     projectPath: selectedProjectPath,
     requestPath: normalizedRequestPath

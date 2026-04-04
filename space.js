@@ -49,6 +49,7 @@ async function loadCommandModule(commandName) {
 }
 
 async function run() {
+  const originalEnv = { ...process.env };
   const { loadProjectEnvFiles } = await import(
     pathToFileURL(path.join(__dirname, "server", "lib", "utils", "env_files.js")).href
   );
@@ -75,6 +76,7 @@ async function run() {
       commandsDir: COMMANDS_DIR,
       listCommandNames,
       loadCommandModule,
+      originalEnv,
       projectRoot: __dirname
     });
 

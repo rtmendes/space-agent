@@ -66,4 +66,5 @@ The routed overlay anchors are the correct place for floating routed UI such as 
 - keep route resolution rules centralized in `route-path.js`
 - keep route lifecycle, scroll memory, and `space.router` behavior centralized in `router-store.js`
 - routed feature modules should ship their own `view.html` and let the router mount them
+- if route resolution or stable router seams change, also update `app/L0/_all/mod/_core/onscreen_agent/ext/skills/development/` because the onscreen development skill mirrors this contract
 - if you add or rename a stable router seam, update this file and `/app/AGENTS.md`
