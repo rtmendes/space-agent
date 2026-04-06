@@ -227,7 +227,7 @@ const text = result.content; // always use .content
 
 `fileDelete` single returns `{ path }`. Batch returns `{ count, paths }`.
 
-`userSelfInfo` returns `{ username, fullName, groups, managedGroups, isAdmin }`.
+`userSelfInfo` returns `{ username, fullName, groups, managedGroups }`.
 
 Batch `fileRead` returns `{ count, files }` where each entry has `{ path, content, encoding }`.
 
@@ -239,6 +239,7 @@ Notes:
 - `fileDelete("L2/alice/old-folder/")` deletes a directory recursively.
 - `fileRead()` and `fileWrite()` also accept composed batch input through a top-level `files` array.
 - `fileDelete()` also accepts batch input through a top-level `paths` array.
+- Treat `_admin` membership as `groups.includes("_admin")`; there is no separate `isAdmin` field.
 - Batch file reads, writes, and deletes validate all targets up front and fail fast. If one batch entry is invalid or forbidden, nothing in that batch starts.
 - These calls enforce server-side permissions. If access is denied or the path is invalid, the call throws.
 - If you need the raw API surface, `space.api.call("file_list", ...)`, `space.api.call("file_read", ...)`, `space.api.call("file_write", ...)`, `space.api.call("file_delete", ...)`, and `space.api.call("user_self_info", ...)` are also available.

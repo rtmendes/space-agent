@@ -287,6 +287,7 @@ function buildPackingEntries(widgetIds = [], widgetSizes = {}) {
 
 const MIN_VERTICALITY_SCORE = 1.34;
 const MIN_VERTICALITY_ITEM_COUNT = 2;
+const PACKING_VIEWPORT_HEADROOM_COLS = 2;
 
 function sortPackingEntries(entries) {
   return [...entries].sort((left, right) => {
@@ -318,7 +319,7 @@ function resolvePackingWidthThresholdWithMode(entries, viewportCols = 0, capToTo
   const maxWidgetWidth = entries.reduce((maxWidth, entry) => Math.max(maxWidth, entry.size.cols), 1);
   const totalWidth = entries.reduce((sum, entry) => sum + entry.size.cols, 0);
   const normalizedViewportCols = Number.isFinite(viewportCols) && viewportCols > 0
-    ? Math.floor(viewportCols)
+    ? Math.max(1, Math.floor(viewportCols) - PACKING_VIEWPORT_HEADROOM_COLS)
     : totalWidth;
 
   if (!capToTotalWidth) {
@@ -609,6 +610,12 @@ function shouldPreferNextRow(currentMetrics, nextMetrics, position = DEFAULT_WID
   // Only defer when placing later in the current scan row; once we move to a
   // fresh row start, accept the best physical fit instead of cascading gaps.
   if ((position?.col || 0) <= 0) {
+    return false;
+  }
+
+  // If the candidate stays inside the packed width we already established,
+  // treat it as a compact same-row fill instead of forcing a fresh row.
+  if ((nextMetrics?.width || 0) <= (currentMetrics?.width || 0)) {
     return false;
   }
 

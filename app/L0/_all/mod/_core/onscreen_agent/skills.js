@@ -1,6 +1,6 @@
-const ONSCREEN_TOP_LEVEL_SKILL_FILE_PATTERN = "mod/*/*/ext/skills/*/skill.md";
-const ONSCREEN_ALL_SKILL_FILE_PATTERN = "mod/*/*/ext/skills/**/skill.md";
-const SKILL_FILE_NAME = "skill.md";
+const ONSCREEN_TOP_LEVEL_SKILL_FILE_PATTERN = "mod/*/*/ext/skills/*/SKILL.md";
+const ONSCREEN_ALL_SKILL_FILE_PATTERN = "mod/*/*/ext/skills/**/SKILL.md";
+const SKILL_FILE_NAME = "SKILL.md";
 const SKILLS_ROOT_SEGMENT = "/ext/skills/";
 export const ONSCREEN_SKILL_LOAD_HOOK_KEY = "__spaceOnscreenAgentOnSkillLoad";
 
@@ -66,8 +66,8 @@ function parseDiscoveredSkillFile(filePath) {
 
 function buildSkillListLines(skills) {
   return skills.map((skill) => {
-    const description = skill.description ? ` | ${skill.description}` : "";
-    return `- ${skill.path} | ${skill.name}${description}`;
+    const description = skill.description ? `|${skill.description}` : "";
+    return `${skill.path}|${skill.name}${description}`;
   });
 }
 
@@ -105,16 +105,16 @@ function buildSkillConflictLines(conflicts) {
   }
 
   return [
-    "Conflicting skill ids are unavailable until they are unique across readable mods:",
+    "conflicting skill ids:",
     ...conflicts.map((conflict) => {
       const modules = conflict.entries.map((entry) => entry.modulePath).join(", ");
-      return `- ${conflict.path} | conflict | ${modules}`;
+      return `${conflict.path}|conflict|${modules}`;
     })
   ];
 }
 
 function buildSkillFilePattern(path) {
-  return `mod/*/*/ext/skills/${normalizeSkillPath(path)}/skill.md`;
+  return `mod/*/*/ext/skills/${normalizeSkillPath(path)}/SKILL.md`;
 }
 
 const listDiscoveredSkillFiles = globalThis.space.extend(
@@ -195,6 +195,7 @@ async function readSkillFiles(skillFiles) {
 
     return {
       alwaysLoaded: readSkillMetadataBoolean(metadata, "always_loaded"),
+      body: String(parsedDocument?.body || content),
       content,
       description: String(frontmatter.description || "").trim(),
       filePath: skillFile.filePath,
@@ -274,14 +275,11 @@ export const buildOnscreenSkillsPromptSection = globalThis.space.extend(
     }
 
     return [
-      "## Onscreen Agent Skills",
-      "Skills are loaded on demand unless they appear in the automatically loaded skills section below.",
-      "Skill ids are relative to a module's `ext/skills/` folder and exclude the trailing `/skill.md`.",
-      "Only top-level skills are listed here by default.",
-      "Load a skill with a JavaScript execution block using `await space.skills.load(\"<path>\")`; top-level `return` is optional for skill loads because loaded skill content is captured automatically.",
-      "Do not rely on a skill's hidden content until you load it or until it appears in the automatically loaded skills section below.",
-      "Some skills are routing skills and may tell you to load a deeper skill path next.",
-      skills.length ? "Available top-level skills path|name|description:" : "No loadable skills are currently available.",
+      "skills",
+      "load on demand unless auto loaded",
+      "id = ext/skills path without /SKILL.md",
+      "load: await space.skills.load(\"id\")",
+      skills.length ? "skills id|name|description↓" : "no loadable skills",
       ...buildSkillListLines(skills),
       ...buildSkillConflictLines(conflicts)
     ]
@@ -302,11 +300,11 @@ export const buildOnscreenAutomaticallyLoadedSkillsPromptSection = globalThis.sp
     }
 
     return [
-      "## Automatically Loaded Skills",
-      ...alwaysLoadedSkills.map((skill) => `path: ${skill.path}\n${skill.content}`)
+      "auto loaded",
+      ...alwaysLoadedSkills.map((skill) => `id: ${skill.path}\n${skill.body}`)
     ]
       .filter(Boolean)
-      .join("\n\n\n");
+      .join("\n\n");
   }
 );
 

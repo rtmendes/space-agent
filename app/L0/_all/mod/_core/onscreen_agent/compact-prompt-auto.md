@@ -14,6 +14,7 @@ Preserve the important parts:
 - important file paths, APIs, commands, errors, outputs, and state that affect the current step
 - the final turns of the history in enough detail that the agent can resume where it stopped
 - the clearest possible statement of what should happen next
+- exact returned lines only when the current next step still depends on those exact lines, ids, or numbers
 
 Remove what does not help the next assistant turn:
 - repetition
@@ -21,6 +22,7 @@ Remove what does not help the next assistant turn:
 - empty retries
 - filler, politeness, and low-signal phrasing
 - stale detail that no longer affects the current step
+- full raw execution dumps, full widget sources, full skill files, and full file bodies when a short summary of ids, status, errors, and next step is enough
 
 Do not use markdown headings, bullets, code fences, or speaker labels in the output.
 Do not mention that you are summarizing or compacting.

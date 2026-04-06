@@ -1,6 +1,6 @@
 ---
 name: Development
-description: Router skill for frontend development in the layered Space Agent runtime. Load deeper development skills before editing.
+description: Frontend development router. Load deeper skills before editing
 ---
 
 Use this skill first for any development task. This is a routing skill: it tells you which deeper development skills to load next. Do not rely on this file alone as the full contract.
@@ -10,7 +10,7 @@ Use this skill first for any development task. This is a routing skill: it tells
 - This skill set only authorizes development in `app/`.
 - Do not edit `server/`, `commands/`, or `packaging/` from this skill set.
 - Load `development/backend-reference` only to understand backend contracts that the frontend calls into.
-- Before writing files, call `await space.api.userSelfInfo()` and use `scope.frontend` to decide which logical app roots and module roots are actually writable for the current user.
+- Before writing files, call `await space.api.userSelfInfo()` and derive writable roots from `username`, `managedGroups`, and `_admin` membership in `groups`.
 - Always update the relevant `AGENTS.md` files in the same session as your code changes.
 
 ## Load These Skills Next

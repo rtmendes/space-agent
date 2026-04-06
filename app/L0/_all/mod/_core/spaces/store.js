@@ -68,6 +68,7 @@ const GRID_CAMERA_BUFFER_ROWS = 2;
 const GRID_EDGE_SCROLL_THRESHOLD = 72;
 const GRID_EDGE_SCROLL_SPEED = 8;
 const SPACE_META_PERSIST_DELAY_MS = 320;
+const CURRENT_WIDGET_TRANSIENT_KEY = "spaces/current-widget";
 const EMPTY_SPACE_FLOAT_PROFILE = Object.freeze({
   orbitPeriodMs: 12400,
   rotationAmplitude: 3.2,
@@ -108,6 +109,35 @@ function normalizeRenderWidgetRequest(optionsOrId, cols, rows, renderer) {
 function normalizeRuntimeWidgetIdList(values) {
   const rawValues = Array.isArray(values) ? values : typeof values === "string" && values ? [values] : [];
   return [...new Set(rawValues.map((value) => String(value ?? "").trim()).filter(Boolean).map((value) => normalizeWidgetId(value)))];
+}
+
+function widgetSizesMatch(left, right) {
+  const leftSize = normalizeWidgetSize(left, DEFAULT_WIDGET_SIZE);
+  const rightSize = normalizeWidgetSize(right, DEFAULT_WIDGET_SIZE);
+  return leftSize.cols === rightSize.cols && leftSize.rows === rightSize.rows;
+}
+
+function widgetPositionsMatch(left, right) {
+  const leftPosition = normalizeWidgetPosition(left, DEFAULT_WIDGET_POSITION);
+  const rightPosition = normalizeWidgetPosition(right, DEFAULT_WIDGET_POSITION);
+  return leftPosition.col === rightPosition.col && leftPosition.row === rightPosition.row;
+}
+
+function widgetRecordNeedsRender(previousSpace, nextSpace, widgetId) {
+  const previousWidget = getWidgetRecord(previousSpace, widgetId);
+  const nextWidget = getWidgetRecord(nextSpace, widgetId);
+
+  if (!previousWidget || !nextWidget) {
+    return true;
+  }
+
+  return (
+    previousWidget.name !== nextWidget.name ||
+    previousWidget.rendererSource !== nextWidget.rendererSource ||
+    previousWidget.schema !== nextWidget.schema ||
+    !widgetSizesMatch(previousWidget.defaultSize, nextWidget.defaultSize) ||
+    !widgetPositionsMatch(previousWidget.defaultPosition, nextWidget.defaultPosition)
+  );
 }
 
 function hasExplicitWidgetPosition(options = {}) {
@@ -394,10 +424,16 @@ function ensureSpacesRuntimeNamespace() {
       });
 
       if (activeSpacesStore) {
-        await activeSpacesStore.handleExternalMutation(targetSpaceId);
+        await activeSpacesStore.handleExternalMutation(targetSpaceId, {
+          widgetId: result.widgetId
+        });
       }
 
-      return result;
+      return buildWidgetToolResult(result, {
+        operationLabel: "renderWidget(...)",
+        spaceId: targetSpaceId,
+        widgetId: result.widgetId
+      });
     },
     repairLayout: async (spaceIdOrOptions = undefined) => {
       const requestedSpaceId =
@@ -460,8 +496,7 @@ function ensureSpacesRuntimeNamespace() {
         throw new Error("Widget reload is only available for the currently open space.");
       }
 
-      await activeSpacesStore.reloadWidget(targetWidgetId);
-      return activeSpacesStore.currentSpace;
+      return activeSpacesStore.reloadWidget(targetWidgetId);
     },
     removeSpace: async (spaceIdOrOptions = undefined) => {
       const requestedSpaceId =
@@ -503,6 +538,8 @@ function ensureSpacesRuntimeNamespace() {
         await activeSpacesStore.handleExternalMutation(targetSpaceId);
       }
 
+      clearCurrentWidgetTransientSection(result.widgetId);
+
       return result;
     },
     removeWidgets: async (options = {}) => {
@@ -520,6 +557,8 @@ function ensureSpacesRuntimeNamespace() {
       if (activeSpacesStore) {
         await activeSpacesStore.handleExternalMutation(targetSpaceId);
       }
+
+      result.widgetIds.forEach((widgetId) => clearCurrentWidgetTransientSection(widgetId));
 
       return result;
     },
@@ -552,6 +591,8 @@ function ensureSpacesRuntimeNamespace() {
         await activeSpacesStore.handleExternalMutation(targetSpaceId);
       }
 
+      result.widgetIds.forEach((widgetId) => clearCurrentWidgetTransientSection(widgetId));
+
       return result;
     },
     patchWidget: async (options = {}) => {
@@ -567,10 +608,16 @@ function ensureSpacesRuntimeNamespace() {
       });
 
       if (activeSpacesStore) {
-        await activeSpacesStore.handleExternalMutation(targetSpaceId);
+        await activeSpacesStore.handleExternalMutation(targetSpaceId, {
+          widgetId: result.widgetId
+        });
       }
 
-      return result;
+      return buildWidgetToolResult(result, {
+        operationLabel: "patchWidget(...)",
+        spaceId: targetSpaceId,
+        widgetId: result.widgetId
+      });
     },
     resolveAppUrl,
     saveSpaceLayout: async (options = {}) => {
@@ -623,10 +670,16 @@ function ensureSpacesRuntimeNamespace() {
       });
 
       if (activeSpacesStore) {
-        await activeSpacesStore.handleExternalMutation(targetSpaceId);
+        await activeSpacesStore.handleExternalMutation(targetSpaceId, {
+          widgetId: result.widgetId
+        });
       }
 
-      return result;
+      return buildWidgetToolResult(result, {
+        operationLabel: "upsertWidget(...)",
+        spaceId: targetSpaceId,
+        widgetId: result.widgetId
+      });
     },
     widgetApiVersion: WIDGET_API_VERSION
   };
@@ -670,6 +723,265 @@ function normalizeOptionalSpaceId(value) {
   return rawValue ? normalizeSpaceId(rawValue) : "";
 }
 
+function normalizeOptionalWidgetId(value) {
+  const rawValue = String(value ?? "").trim();
+  return rawValue ? normalizeWidgetId(rawValue) : "";
+}
+
+function createWidgetRenderCheck(options = {}) {
+  const widgetId = normalizeOptionalWidgetId(options.widgetId ?? options.id);
+  const status = options.status === "ok" || options.status === "error" ? options.status : "not_checked";
+  const defaultMessage =
+    status === "ok"
+      ? `Widget "${widgetId}" rendered successfully.`
+      : status === "error"
+        ? `Widget "${widgetId}" failed to render.`
+        : `Widget "${widgetId}" has not been live-tested yet.`;
+
+  return {
+    checked: status !== "not_checked",
+    message: String(options.message || defaultMessage),
+    needsRepair: status === "error",
+    ok: status === "ok" ? true : status === "error" ? false : null,
+    phase: String(options.phase || ""),
+    status,
+    widgetId
+  };
+}
+
+function createUncheckedWidgetRenderCheck(widgetId, message = "") {
+  return createWidgetRenderCheck({
+    message,
+    status: "not_checked",
+    widgetId
+  });
+}
+
+function createSuccessfulWidgetRenderCheck(widgetId, phase = "render") {
+  return createWidgetRenderCheck({
+    phase,
+    status: "ok",
+    widgetId
+  });
+}
+
+function createFailedWidgetRenderCheck(widgetId, error, phase = "render") {
+  const normalizedWidgetId = normalizeOptionalWidgetId(widgetId);
+
+  return createWidgetRenderCheck({
+    message: `Widget "${normalizedWidgetId}" failed to render: ${formatErrorMessage(
+      error,
+      `Unable to render widget "${normalizedWidgetId}".`
+    )}`,
+    phase,
+    status: "error",
+    widgetId: normalizedWidgetId
+  });
+}
+
+function cloneWidgetRenderCheck(check, widgetId = "") {
+  return createWidgetRenderCheck({
+    ...(check && typeof check === "object" ? check : {}),
+    widgetId: check?.widgetId || widgetId
+  });
+}
+
+function getWidgetRenderCheckForSpace(spaceId, widgetId) {
+  const normalizedSpaceId = normalizeOptionalSpaceId(spaceId);
+  const normalizedWidgetId = normalizeOptionalWidgetId(widgetId);
+
+  if (!normalizedWidgetId) {
+    return createUncheckedWidgetRenderCheck("", "No widget id was provided for the live render check.");
+  }
+
+  if (activeSpacesStore?.currentSpaceId === normalizedSpaceId) {
+    return activeSpacesStore.getWidgetRenderCheck(normalizedWidgetId);
+  }
+
+  return createUncheckedWidgetRenderCheck(
+    normalizedWidgetId,
+    normalizedSpaceId
+      ? `Widget "${normalizedWidgetId}" was not live-tested because space "${normalizedSpaceId}" is not currently open.`
+      : `Widget "${normalizedWidgetId}" was not live-tested because no current space is open.`
+  );
+}
+
+function getWidgetOperationStatusVerb(operationLabel) {
+  switch (String(operationLabel || "").trim()) {
+    case "patchWidget(...)":
+      return "patched";
+    case "reloadWidget(...)":
+      return "reloaded";
+    case "renderWidget(...)":
+    case "upsertWidget(...)":
+      return "saved";
+    default:
+      return "updated";
+  }
+}
+
+function formatWidgetOperationStatusText(widgetId, operationLabel, widgetRender, options = {}) {
+  const check = cloneWidgetRenderCheck(widgetRender, widgetId);
+  const verb = getWidgetOperationStatusVerb(operationLabel);
+  const targetLabel = widgetId ? `Widget "${widgetId}"` : "Widget";
+  const suffix = options.transientUpdated ? "loaded to TRANSIENT." : "done.";
+
+  if (check.status === "error") {
+    return `${targetLabel} ${verb}, render failed, ${suffix}`;
+  }
+
+  if (check.status === "ok") {
+    return `${targetLabel} ${verb}, rendered ok, ${suffix}`;
+  }
+
+  return `${targetLabel} ${verb}, not live-tested, ${suffix}`;
+}
+
+function extractWidgetIdFromWidgetText(widgetText) {
+  const match = String(widgetText || "").match(/^id:\s*(.+)$/mu);
+  return normalizeOptionalWidgetId(match?.[1] || "");
+}
+
+function getChatTransientRuntime() {
+  const transient = globalThis.space?.chat?.transient;
+  return transient && typeof transient.set === "function" ? transient : null;
+}
+
+function updateCurrentWidgetTransientSection({
+  spaceId = "",
+  widgetId = "",
+  widgetPath = "",
+  widgetStatusText = "",
+  widgetText = ""
+} = {}) {
+  const transient = getChatTransientRuntime();
+  const normalizedWidgetText = typeof widgetText === "string" ? widgetText.trim() : "";
+
+  if (!transient || !normalizedWidgetText) {
+    return false;
+  }
+
+  const normalizedSpaceId = normalizeOptionalSpaceId(spaceId);
+  const normalizedWidgetId =
+    normalizeOptionalWidgetId(widgetId) || extractWidgetIdFromWidgetText(normalizedWidgetText);
+
+  transient.set(CURRENT_WIDGET_TRANSIENT_KEY, {
+    content: [
+      normalizedSpaceId ? `spaceId: ${normalizedSpaceId}` : "",
+      normalizedWidgetId ? `widgetId: ${normalizedWidgetId}` : "",
+      widgetPath ? `widgetPath: ${widgetPath}` : "",
+      widgetStatusText ? `status: ${widgetStatusText}` : "",
+      "",
+      normalizedWidgetText
+    ]
+      .filter(Boolean)
+      .join("\n"),
+    heading: "Current Widget",
+    key: CURRENT_WIDGET_TRANSIENT_KEY,
+    order: 300
+  });
+  return true;
+}
+
+function clearCurrentWidgetTransientSection(widgetId = "") {
+  const transient = getChatTransientRuntime();
+
+  if (!transient || typeof transient.delete !== "function") {
+    return false;
+  }
+
+  if (!widgetId || typeof transient.get !== "function") {
+    return transient.delete(CURRENT_WIDGET_TRANSIENT_KEY);
+  }
+
+  const currentSection = transient.get(CURRENT_WIDGET_TRANSIENT_KEY);
+  const normalizedWidgetId = normalizeOptionalWidgetId(widgetId);
+
+  if (!currentSection?.content || !normalizedWidgetId) {
+    return false;
+  }
+
+  if (!currentSection.content.includes(`widgetId: ${normalizedWidgetId}`)) {
+    return false;
+  }
+
+  return transient.delete(CURRENT_WIDGET_TRANSIENT_KEY);
+}
+
+function emitWidgetToolStatus(statusText, widgetRender = null) {
+  const normalizedStatusText = String(statusText || "").trim();
+
+  if (!normalizedStatusText) {
+    return "";
+  }
+
+  const check = widgetRender ? cloneWidgetRenderCheck(widgetRender, widgetRender.widgetId) : null;
+
+  if (check?.status === "error") {
+    console.error(`[spaces] ${normalizedStatusText}`, check.message);
+  } else {
+    console.log(`[spaces] ${normalizedStatusText}`);
+  }
+
+  return normalizedStatusText;
+}
+
+function buildWidgetReadToolStatusText({ widgetId = "", transientUpdated = false } = {}) {
+  const normalizedWidgetId = normalizeOptionalWidgetId(widgetId);
+
+  if (normalizedWidgetId) {
+    return transientUpdated
+      ? `Widget "${normalizedWidgetId}" loaded to TRANSIENT.`
+      : `Widget "${normalizedWidgetId}" loaded.`;
+  }
+
+  return transientUpdated ? "Current widget loaded to TRANSIENT." : "Current widget loaded.";
+}
+
+async function buildWidgetToolResult(baseResult = {}, { operationLabel = "widget operation", spaceId = "", widgetId = "" } = {}) {
+  const nextResult = baseResult && typeof baseResult === "object" ? { ...baseResult } : {};
+  const normalizedSpaceId = normalizeOptionalSpaceId(spaceId || nextResult.space?.id);
+  const normalizedWidgetId = normalizeOptionalWidgetId(widgetId || nextResult.widgetId);
+  const widgetPath =
+    nextResult.widgetPath || (normalizedSpaceId && normalizedWidgetId ? buildSpaceWidgetFilePath(normalizedSpaceId, normalizedWidgetId) : "");
+
+  if ((typeof nextResult.widgetText !== "string" || !nextResult.widgetText) && normalizedSpaceId && normalizedWidgetId) {
+    try {
+      nextResult.widgetText = await readWidgetFromStorage({
+        spaceId: normalizedSpaceId,
+        widgetName: normalizedWidgetId
+      });
+    } catch {
+      nextResult.widgetText = typeof nextResult.widgetText === "string" ? nextResult.widgetText : "";
+    }
+  }
+
+  const widgetRender = getWidgetRenderCheckForSpace(normalizedSpaceId, normalizedWidgetId);
+  const widgetText = typeof nextResult.widgetText === "string" ? nextResult.widgetText : "";
+  const transientUpdated = updateCurrentWidgetTransientSection({
+    spaceId: normalizedSpaceId,
+    widgetId: normalizedWidgetId,
+    widgetPath,
+    widgetStatusText: "",
+    widgetText
+  });
+  const widgetStatusText = formatWidgetOperationStatusText(normalizedWidgetId, operationLabel, widgetRender, {
+    transientUpdated
+  });
+
+  if (transientUpdated) {
+    updateCurrentWidgetTransientSection({
+      spaceId: normalizedSpaceId,
+      widgetId: normalizedWidgetId,
+      widgetPath,
+      widgetStatusText,
+      widgetText
+    });
+  }
+
+  return emitWidgetToolStatus(widgetStatusText, widgetRender);
+}
+
 function formatTitleFromId(id) {
   return String(id || "")
     .split(/[-_]+/u)
@@ -696,6 +1008,69 @@ function getWidgetDefaultSize(spaceRecord, widgetId) {
 
 function getEffectiveWidgetSize(spaceRecord, widgetId) {
   return normalizeWidgetSize(spaceRecord?.widgetSizes?.[widgetId] || getWidgetDefaultSize(spaceRecord, widgetId), DEFAULT_WIDGET_SIZE);
+}
+
+function buildWidgetCatalogDescription(widget) {
+  const state = widget?.state || (widget?.minimized ? "minimized" : "expanded");
+  const cols = widget?.size?.cols ?? widget?.cols ?? 0;
+  const rows = widget?.size?.rows ?? widget?.rows ?? 0;
+  const sizeLabel = cols > 0 && rows > 0 ? `${cols}x${rows}` : "";
+  const broken = Boolean(widget?.needsRepair ?? widget?.render?.needsRepair);
+  const parts = [];
+
+  if (state) {
+    parts.push(state);
+  }
+
+  if (sizeLabel) {
+    parts.push(`${sizeLabel} widget`);
+  } else {
+    parts.push("widget");
+  }
+
+  if (broken) {
+    parts.push("currently broken");
+  }
+
+  return parts.join(", ");
+}
+
+function buildWidgetCatalogEntry(widget) {
+  return {
+    description: buildWidgetCatalogDescription(widget),
+    id: String(widget?.id || ""),
+    name: String(widget?.name || formatTitleFromId(widget?.id || "widget"))
+  };
+}
+
+function normalizeWidgetCatalogTextField(value = "") {
+  return String(value ?? "")
+    .replace(/\r\n?/gu, "\n")
+    .replace(/\s*\n+\s*/gu, " ")
+    .replace(/[|]/gu, "/")
+    .trim();
+}
+
+function buildWidgetCatalogTextLine(widget) {
+  const entry = buildWidgetCatalogEntry(widget);
+
+  if (!entry.id) {
+    return "";
+  }
+
+  return [
+    entry.id,
+    normalizeWidgetCatalogTextField(entry.name),
+    normalizeWidgetCatalogTextField(entry.description)
+  ].join("|");
+}
+
+function buildWidgetCatalogText(widgets = []) {
+  const lines = (Array.isArray(widgets) ? widgets : [])
+    .map((widget) => buildWidgetCatalogTextLine(widget))
+    .filter(Boolean);
+
+  return ["widgets (id|name|description)↓", ...(lines.length ? lines : ["[empty]"])].join("\n");
 }
 
 function buildResolvedLayoutInputs(spaceRecord, overrides = {}) {
@@ -743,16 +1118,26 @@ function buildRuntimeWidgetDescriptor(spaceRecord, resolvedLayout, widgetId) {
     effectiveSize
   );
   const minimized = Boolean(resolvedLayout?.minimizedMap?.[widgetId] ?? spaceRecord?.minimizedWidgetIds?.includes(widgetId));
+  const renderCheck = getWidgetRenderCheckForSpace(spaceRecord?.id, widgetId);
 
   return {
     col: position.col,
     cols: renderedSize.cols,
+    description: buildWidgetCatalogDescription({
+      minimized,
+      needsRepair: renderCheck.needsRepair,
+      rows: effectiveSize.rows,
+      size: effectiveSize,
+      state: minimized ? "minimized" : "expanded"
+    }),
     id: widgetId,
     minimized,
     name: widgetRecord.name || formatTitleFromId(widgetId),
+    needsRepair: renderCheck.needsRepair,
     path: buildSpaceWidgetFilePath(spaceRecord.id, widgetId),
     position,
-    renderer: widgetRecord.rendererSource,
+    render: renderCheck,
+    renderStatus: renderCheck.status,
     renderedSize,
     row: position.row,
     rows: renderedSize.rows,
@@ -849,6 +1234,9 @@ function createCurrentSpaceRuntime(namespace) {
         .map((widgetId) => buildRuntimeWidgetDescriptor(nextSpace, resolvedLayout, widgetId))
         .filter(Boolean);
     },
+    listWidgets() {
+      return buildWidgetCatalogText(this.widgets);
+    },
     reload() {
       return namespace.reloadCurrentSpace();
     },
@@ -859,10 +1247,41 @@ function createCurrentSpaceRuntime(namespace) {
       });
     },
     readWidget(widgetName) {
-      return readWidgetFromStorage({
-        spaceId: activeSpacesStore?.currentSpaceId,
-        widgetName
-      });
+      const spaceId = activeSpacesStore?.currentSpaceId;
+
+      return (async () => {
+        const widgetText = await readWidgetFromStorage({
+          spaceId,
+          widgetName
+        });
+        const widgetId = extractWidgetIdFromWidgetText(widgetText) || normalizeOptionalWidgetId(widgetName);
+        const widgetPath = spaceId && widgetId ? buildSpaceWidgetFilePath(spaceId, widgetId) : "";
+
+        const transientUpdated = updateCurrentWidgetTransientSection({
+          spaceId,
+          widgetId,
+          widgetPath,
+          widgetStatusText: "",
+          widgetText
+        });
+
+        const statusText = buildWidgetReadToolStatusText({
+          transientUpdated,
+          widgetId
+        });
+
+        if (transientUpdated) {
+          updateCurrentWidgetTransientSection({
+            spaceId,
+            widgetId,
+            widgetPath,
+            widgetStatusText: statusText,
+            widgetText
+          });
+        }
+
+        return emitWidgetToolStatus(statusText);
+      })();
     },
     patchWidget(widgetId, options = {}) {
       return namespace.patchWidget({
@@ -1788,6 +2207,40 @@ function cleanupWidgetCards(widgetCards) {
   });
 }
 
+function removeWidgetCard(widgetCards, widgetId) {
+  const skeleton = widgetCards?.[widgetId];
+
+  if (!skeleton) {
+    return;
+  }
+
+  runWidgetCleanup(skeleton);
+  skeleton.card?.remove();
+  delete widgetCards[widgetId];
+}
+
+function syncWidgetCardOrder(gridElement, widgetIds = [], widgetCards = {}) {
+  if (!gridElement) {
+    return;
+  }
+
+  widgetIds.forEach((widgetId) => {
+    const cardElement = widgetCards?.[widgetId]?.card;
+
+    if (cardElement) {
+      gridElement.appendChild(cardElement);
+    }
+  });
+}
+
+function buildWidgetLayoutEntry(resolvedLayout, widgetId) {
+  return {
+    minimized: Boolean(resolvedLayout?.minimizedMap?.[widgetId]),
+    position: resolvedLayout?.positions?.[widgetId],
+    renderedSize: resolvedLayout?.renderedSizes?.[widgetId]
+  };
+}
+
 function tryCompileRendererMethod(rendererSource) {
   const methodObject = Function(`return ({ ${rendererSource} });`)();
 
@@ -1834,7 +2287,7 @@ function compileWidgetRenderer(widgetRecord, widgetId) {
   return compiledRenderer;
 }
 
-async function renderWidgetCard(spaceRecord, widgetId, skeleton, loadToken, layoutEntry) {
+async function renderWidgetCard(spaceRecord, widgetId, skeleton, loadToken, layoutEntry, renderPhase = "render") {
   const widgetRecord = getWidgetRecord(spaceRecord, widgetId);
 
   if (!widgetRecord) {
@@ -1871,6 +2324,7 @@ async function renderWidgetCard(spaceRecord, widgetId, skeleton, loadToken, layo
 
   if (typeof rendered === "function") {
     skeleton.cleanup = rendered;
+    activeSpacesStore?.recordWidgetRenderSuccess(widgetId, renderPhase);
     return;
   }
 
@@ -1881,12 +2335,15 @@ async function renderWidgetCard(spaceRecord, widgetId, skeleton, loadToken, layo
       renderWidgetOutput(rendered.output, skeleton.renderTarget);
     }
 
+    activeSpacesStore?.recordWidgetRenderSuccess(widgetId, renderPhase);
     return;
   }
 
   if (rendered !== undefined) {
     renderWidgetOutput(rendered, skeleton.renderTarget);
   }
+
+  activeSpacesStore?.recordWidgetRenderSuccess(widgetId, renderPhase);
 }
 
 const spacesModel = {
@@ -1928,6 +2385,7 @@ const spacesModel = {
   viewportResizeHandler: null,
   widgetCards: {},
   widgetErrorCount: 0,
+  widgetRenderChecks: {},
   widgetLoadToken: 0,
 
   mount(refs = {}) {
@@ -2062,7 +2520,7 @@ const spacesModel = {
       return;
     }
 
-    await globalThis.space.router.back("dashboard");
+    await globalThis.space.router.replaceTo("dashboard", { scrollMode: "auto" });
   },
 
   get hasPendingCurrentSpaceMetaChanges() {
@@ -2191,8 +2649,31 @@ const spacesModel = {
             title: spaceRecord.title,
             updatedAt: spaceRecord.updatedAt,
             updatedAtLabel: nextUpdatedAtLabel
-          }
+        }
     );
+  },
+
+  applyCurrentSpaceSnapshot(spaceRecord, options = {}) {
+    if (!spaceRecord?.id) {
+      return;
+    }
+
+    this.currentSpace = spaceRecord;
+    this.currentSpaceIconColorDraft = spaceRecord.iconColor || "";
+    this.currentSpaceIconDraft = spaceRecord.icon || "";
+    this.currentSpaceId = spaceRecord.id;
+    this.currentSpaceInstructionsDraft = spaceRecord.agentInstructions || spaceRecord.specialInstructions || "";
+    this.currentSpaceTitleDraft = spaceRecord.title;
+
+    if (options.cameraOffset && typeof options.cameraOffset === "object") {
+      this.cameraOffsetPx = {
+        x: Number(options.cameraOffset.x) || 0,
+        y: Number(options.cameraOffset.y) || 0
+      };
+    }
+
+    this.updateSpaceListEntry(spaceRecord);
+    syncSpacesRuntimeState();
   },
 
   async persistCurrentSpaceMeta() {
@@ -2390,6 +2871,7 @@ const spacesModel = {
       skeleton.minimizeButton.textContent = resolvedLayout.minimizedMap[widgetId] ? "+" : "-";
       skeleton.minimizeButton.title = resolvedLayout.minimizedMap[widgetId] ? "Restore widget" : "Minimize widget";
       skeleton.minimizeButton.setAttribute("aria-label", skeleton.minimizeButton.title);
+      skeleton.titleLabel.textContent = buildWidgetHeaderTitle(spaceRecord, widgetId);
       skeleton.card.style.removeProperty("transition");
       skeleton.card.style.removeProperty("transform");
     });
@@ -2917,7 +3399,7 @@ const spacesModel = {
     }
   },
 
-  async reloadWidget(widgetId) {
+  async reloadWidget(widgetId, options = {}) {
     if (!this.currentSpace || !this.refs.grid) {
       return;
     }
@@ -2941,12 +3423,13 @@ const spacesModel = {
     skeleton.renderTarget.replaceChildren(createWidgetPlaceholder("Reloading widget..."));
 
     try {
-      await renderWidgetCard(this.currentSpace, widgetId, skeleton, loadToken, layoutEntry);
+      await renderWidgetCard(this.currentSpace, widgetId, skeleton, loadToken, layoutEntry, "reload");
     } catch (error) {
       if (loadToken !== this.widgetLoadToken) {
         return;
       }
 
+      this.recordWidgetRenderError(widgetId, error, "reload");
       logSpacesError("reloadWidget failed", error, {
         spaceId: this.currentSpace.id,
         widgetId
@@ -2957,6 +3440,72 @@ const spacesModel = {
       );
       skeleton.card.classList.add("is-error");
     }
+
+    if (options.silent === true) {
+      return null;
+    }
+
+    return buildWidgetToolResult(
+      {
+        space: this.currentSpace
+      },
+      {
+        operationLabel: "reloadWidget(...)",
+        spaceId: this.currentSpace.id,
+        widgetId
+      }
+    );
+  },
+
+  getWidgetRenderCheck(widgetId) {
+    return cloneWidgetRenderCheck(this.widgetRenderChecks?.[normalizeOptionalWidgetId(widgetId)], widgetId);
+  },
+
+  setWidgetRenderCheck(widgetId, check) {
+    const normalizedWidgetId = normalizeOptionalWidgetId(widgetId);
+
+    if (!normalizedWidgetId) {
+      return createUncheckedWidgetRenderCheck("", "No widget id was provided for the live render check.");
+    }
+
+    const nextCheck = cloneWidgetRenderCheck(check, normalizedWidgetId);
+    this.widgetRenderChecks = {
+      ...this.widgetRenderChecks,
+      [normalizedWidgetId]: nextCheck
+    };
+
+    return nextCheck;
+  },
+
+  recordWidgetRenderSuccess(widgetId, phase = "render") {
+    return this.setWidgetRenderCheck(widgetId, createSuccessfulWidgetRenderCheck(widgetId, phase));
+  },
+
+  recordWidgetRenderError(widgetId, error, phase = "render") {
+    return this.setWidgetRenderCheck(widgetId, createFailedWidgetRenderCheck(widgetId, error, phase));
+  },
+
+  resetWidgetRenderChecks(widgetIds = []) {
+    this.widgetRenderChecks = Object.fromEntries(
+      normalizeRuntimeWidgetIdList(widgetIds).map((nextWidgetId) => [
+        nextWidgetId,
+        createUncheckedWidgetRenderCheck(nextWidgetId, `Widget "${nextWidgetId}" has not been live-tested yet.`)
+      ])
+    );
+  },
+
+  syncWidgetRenderChecks(widgetIds = [], rerenderWidgetIds = []) {
+    const normalizedWidgetIds = normalizeRuntimeWidgetIdList(widgetIds);
+    const rerenderSet = new Set(normalizeRuntimeWidgetIdList(rerenderWidgetIds));
+
+    this.widgetRenderChecks = Object.fromEntries(
+      normalizedWidgetIds.map((nextWidgetId) => [
+        nextWidgetId,
+        rerenderSet.has(nextWidgetId)
+          ? createUncheckedWidgetRenderCheck(nextWidgetId, `Widget "${nextWidgetId}" has not been live-tested yet.`)
+          : this.getWidgetRenderCheck(nextWidgetId)
+      ])
+    );
   },
 
   async consolidateCurrentSpace() {
@@ -3136,6 +3685,7 @@ const spacesModel = {
       y: 0
     };
     this.widgetCards = {};
+    this.widgetRenderChecks = {};
     this.currentCanvasBounds = null;
     this.currentResolvedLayout = null;
     this.hasCenteredCurrentSpace = false;
@@ -3182,6 +3732,7 @@ const spacesModel = {
     this.hasCenteredCurrentSpace = false;
     this.widgetCards = {};
     this.widgetErrorCount = 0;
+    this.widgetRenderChecks = {};
     this.renderLoadingSpaceState();
 
     try {
@@ -3191,13 +3742,7 @@ const spacesModel = {
         return;
       }
 
-      this.currentSpace = spaceRecord;
-      this.currentSpaceIconColorDraft = spaceRecord.iconColor || "";
-      this.currentSpaceIconDraft = spaceRecord.icon || "";
-      this.currentSpaceId = spaceRecord.id;
-      this.currentSpaceInstructionsDraft = spaceRecord.agentInstructions || spaceRecord.specialInstructions || "";
-      this.currentSpaceTitleDraft = spaceRecord.title;
-      syncSpacesRuntimeState();
+      this.applyCurrentSpaceSnapshot(spaceRecord);
       await this.renderCurrentSpace(spaceRecord, loadToken);
     } catch (error) {
       if (loadToken !== this.widgetLoadToken) {
@@ -3244,6 +3789,7 @@ const spacesModel = {
       this.currentCanvasBounds = null;
       this.currentResolvedLayout = null;
       this.hasCenteredCurrentSpace = false;
+      this.resetWidgetRenderChecks();
       grid.style.removeProperty("width");
       grid.style.removeProperty("height");
       grid.appendChild(emptyCanvas.root);
@@ -3254,23 +3800,21 @@ const spacesModel = {
     }
 
     const resolvedLayout = this.resolveCurrentSpaceLayout(spaceRecord);
+    this.resetWidgetRenderChecks(spaceRecord.widgetIds);
     const renderJobs = spaceRecord.widgetIds.map(async (widgetId) => {
-      const layoutEntry = {
-        minimized: Boolean(resolvedLayout.minimizedMap[widgetId]),
-        position: resolvedLayout.positions[widgetId],
-        renderedSize: resolvedLayout.renderedSizes[widgetId]
-      };
+      const layoutEntry = buildWidgetLayoutEntry(resolvedLayout, widgetId);
       const skeleton = createWidgetCardSkeleton(spaceRecord, widgetId, layoutEntry);
       this.widgetCards[widgetId] = skeleton;
       grid.appendChild(skeleton.card);
 
       try {
-        await renderWidgetCard(spaceRecord, widgetId, skeleton, loadToken, layoutEntry);
+        await renderWidgetCard(spaceRecord, widgetId, skeleton, loadToken, layoutEntry, "render");
       } catch (error) {
         if (loadToken !== this.widgetLoadToken) {
           return;
         }
 
+        this.recordWidgetRenderError(widgetId, error, "render");
         logSpacesError("renderWidgetCard failed", error, {
           spaceId: spaceRecord.id,
           widgetId
@@ -3292,6 +3836,94 @@ const spacesModel = {
     await Promise.allSettled(renderJobs);
   },
 
+  async reconcileCurrentSpace(spaceRecord, loadToken, options = {}) {
+    const grid = this.refs.grid;
+
+    if (!grid) {
+      return;
+    }
+
+    if (!spaceRecord.widgetIds.length || !Object.keys(this.widgetCards).length) {
+      await this.renderCurrentSpace(spaceRecord, loadToken, options);
+      return;
+    }
+
+    this.cleanupEmptyCanvas();
+    this.cleanupRenderFade();
+
+    const previousSpace = options.previousSpace || this.currentSpace;
+    const previousRects = options.previousRects || captureWidgetCardRects(this.widgetCards);
+    const targetWidgetId = normalizeOptionalWidgetId(options.widgetId);
+    const addedWidgetIds = [];
+    const rerenderWidgetIds = [];
+
+    Object.keys(this.widgetCards).forEach((widgetId) => {
+      if (!spaceRecord.widgetIds.includes(widgetId)) {
+        removeWidgetCard(this.widgetCards, widgetId);
+      }
+    });
+
+    const resolvedLayout = this.resolveCurrentSpaceLayout(spaceRecord);
+    spaceRecord.widgetIds.forEach((widgetId) => {
+      const layoutEntry = buildWidgetLayoutEntry(resolvedLayout, widgetId);
+
+      if (!this.widgetCards[widgetId]) {
+        this.widgetCards[widgetId] = createWidgetCardSkeleton(spaceRecord, widgetId, layoutEntry);
+        addedWidgetIds.push(widgetId);
+        rerenderWidgetIds.push(widgetId);
+        return;
+      }
+
+      if (widgetId === targetWidgetId || widgetRecordNeedsRender(previousSpace, spaceRecord, widgetId)) {
+        rerenderWidgetIds.push(widgetId);
+      }
+    });
+
+    syncWidgetCardOrder(grid, spaceRecord.widgetIds, this.widgetCards);
+    this.syncWidgetRenderChecks(spaceRecord.widgetIds, rerenderWidgetIds);
+    this.applyResolvedLayoutToCards(resolvedLayout, spaceRecord, {
+      animateEntering: options.animateEntering !== false && addedWidgetIds.length > 0,
+      centerOrigin: options.centerOrigin === true,
+      previousRects
+    });
+
+    const renderJobs = rerenderWidgetIds.map(async (widgetId) => {
+      const skeleton = this.widgetCards[widgetId];
+
+      if (!skeleton) {
+        return;
+      }
+
+      try {
+        await renderWidgetCard(
+          spaceRecord,
+          widgetId,
+          skeleton,
+          loadToken,
+          buildWidgetLayoutEntry(resolvedLayout, widgetId),
+          addedWidgetIds.includes(widgetId) ? "render" : "reload"
+        );
+      } catch (error) {
+        if (loadToken !== this.widgetLoadToken) {
+          return;
+        }
+
+        this.recordWidgetRenderError(widgetId, error, "reload");
+        logSpacesError("reconcileCurrentSpace renderWidgetCard failed", error, {
+          spaceId: spaceRecord.id,
+          widgetId
+        });
+        this.widgetErrorCount += 1;
+        skeleton.renderTarget.replaceChildren(
+          createWidgetPlaceholder(formatErrorMessage(error, `Unable to render widget "${widgetId}".`))
+        );
+        skeleton.card.classList.add("is-error");
+      }
+    });
+
+    await Promise.allSettled(renderJobs);
+  },
+
   async reloadCurrentSpace() {
     await this.handleExternalMutation(this.currentSpaceId);
   },
@@ -3308,6 +3940,7 @@ const spacesModel = {
     const preservedCameraOffset = options.preserveCamera === false
       ? { x: 0, y: 0 }
       : { ...this.cameraOffsetPx };
+    const previousSpace = this.currentSpace;
 
     try {
       const spaceRecord = await readSpace(spaceId);
@@ -3316,18 +3949,15 @@ const spacesModel = {
         return;
       }
 
-      this.currentSpace = spaceRecord;
-      this.currentSpaceIconColorDraft = spaceRecord.iconColor || "";
-      this.currentSpaceIconDraft = spaceRecord.icon || "";
-      this.currentSpaceId = spaceRecord.id;
-      this.currentSpaceInstructionsDraft = spaceRecord.agentInstructions || spaceRecord.specialInstructions || "";
-      this.currentSpaceTitleDraft = spaceRecord.title;
-      this.cameraOffsetPx = preservedCameraOffset;
-      syncSpacesRuntimeState();
-      await this.renderCurrentSpace(spaceRecord, loadToken, {
+      this.applyCurrentSpaceSnapshot(spaceRecord, {
+        cameraOffset: preservedCameraOffset
+      });
+      await this.reconcileCurrentSpace(spaceRecord, loadToken, {
         animateEntering: options.animateEntering !== false,
         centerOrigin: options.centerOrigin === true,
-        previousRects
+        previousRects,
+        previousSpace,
+        widgetId: options.widgetId
       });
     } catch (error) {
       if (loadToken !== this.widgetLoadToken) {
@@ -3372,13 +4002,14 @@ const spacesModel = {
     this.renderGridState("No spaces yet.", "Create a space to start building persisted widgets.");
   },
 
-  async handleExternalMutation(spaceId) {
+  async handleExternalMutation(spaceId, options = {}) {
     await this.loadSpacesList();
 
     if (spaceId && this.currentSpaceId === spaceId) {
       await this.refreshCurrentSpaceFromStorage(spaceId, {
         animateEntering: true,
-        preserveCamera: true
+        preserveCamera: true,
+        widgetId: options.widgetId
       });
       return;
     }

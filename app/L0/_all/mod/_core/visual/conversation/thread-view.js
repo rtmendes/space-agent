@@ -3,7 +3,7 @@ import { renderMarkdown } from "/mod/_core/framework/js/markdown-frontmatter.js"
 const EXECUTION_STATUS_LINE_PATTERN = /^execution\s+(.+)$/iu;
 const EXECUTION_PRINT_LINE_PATTERN = /^(log|info|warn|error|debug|dir|table|assert):\s*/iu;
 const ORDERED_LIST_LINE_PATTERN = /^\d+\.\s+/u;
-const STICKY_SCROLL_THRESHOLD = 32;
+const STICKY_SCROLL_THRESHOLD = 96;
 
 function joinClassNames(...classNames) {
   return classNames
@@ -461,6 +461,40 @@ export function createAgentThreadView(config = {}) {
     return createLegacyFormattedMessageBlock(text, className);
   }
 
+  function unwrapSingleParagraphMessageBlock(block) {
+    if (!block || block.tagName !== "DIV") {
+      return block;
+    }
+
+    const significantChildNodes = Array.from(block.childNodes).filter((childNode) => {
+      if (childNode.nodeType !== Node.TEXT_NODE) {
+        return true;
+      }
+
+      return Boolean(childNode.textContent && childNode.textContent.trim());
+    });
+    const elementChildren = Array.from(block.children);
+
+    if (significantChildNodes.length !== 1 || elementChildren.length !== 1) {
+      return block;
+    }
+
+    const [onlyChild] = elementChildren;
+
+    if (!onlyChild || onlyChild.tagName !== "P") {
+      return block;
+    }
+
+    onlyChild.className = joinClassNames(block.className, onlyChild.className);
+    return onlyChild;
+  }
+
+  function createExecutionNarrationBlock(text) {
+    return unwrapSingleParagraphMessageBlock(
+      createFormattedMessageBlock(text, buildAssistantMarkdownClassName("terminal-note"))
+    );
+  }
+
   function buildAssistantMarkdownClassName(...classNames) {
     return joinClassNames("message-content", "message-markdown", assistantMarkdownClassName, ...classNames);
   }
@@ -639,9 +673,13 @@ export function createAgentThreadView(config = {}) {
     return actions;
   }
 
-  function createExecutionPane({ body, label, scrollKey = "" }) {
+  function createExecutionPane({ body, label, scrollKey = "", type = "" }) {
     const pane = document.createElement("div");
     pane.className = "execution-pane";
+
+    if (type) {
+      pane.dataset.executionPane = type;
+    }
 
     const paneLabel = document.createElement("span");
     paneLabel.className = "execution-pane-label";
@@ -720,8 +758,10 @@ export function createAgentThreadView(config = {}) {
 
     const status = document.createElement("span");
     status.className = `execution-status ${summaryState.tone}`;
+    status.dataset.executionStatus = "true";
 
     const statusIcon = document.createElement("x-icon");
+    statusIcon.dataset.executionStatusIcon = "true";
     statusIcon.textContent = summaryState.iconName;
     status.append(statusIcon);
 
@@ -730,6 +770,7 @@ export function createAgentThreadView(config = {}) {
 
     const summaryTitle = document.createElement("span");
     summaryTitle.className = "execution-summary-title";
+    summaryTitle.dataset.executionSummaryTitle = "true";
     summaryTitle.textContent = formatExecutionSummaryLabel(lineCount, pendingState, displayOutputResults);
 
     summaryText.append(summaryTitle);
@@ -748,6 +789,7 @@ export function createAgentThreadView(config = {}) {
     if (executeDisplay) {
       const inputBody = document.createElement("div");
       inputBody.className = "execution-code-list";
+      inputBody.dataset.executionInputList = "true";
 
       executeDisplay.blocks.forEach((block) => {
         const inputBlock = document.createElement("pre");
@@ -760,20 +802,23 @@ export function createAgentThreadView(config = {}) {
         createExecutionPane({
           body: inputBody,
           label: lineCount ? `Input • ${formatLineCount(lineCount)}` : "Input",
-          scrollKey: messageId ? `${messageId}:input` : ""
+          scrollKey: messageId ? `${messageId}:input` : "",
+          type: "input"
         })
       );
     }
 
     const outputBody = document.createElement("div");
     outputBody.className = "execution-output-list";
+    outputBody.dataset.executionOutputList = "true";
     appendTerminalOutput(outputBody, displayOutputResults || [], pendingState);
 
     details.append(
       createExecutionPane({
         body: outputBody,
         label: "Output",
-        scrollKey: messageId ? `${messageId}:output` : ""
+        scrollKey: messageId ? `${messageId}:output` : "",
+        type: "output"
       })
     );
 
@@ -938,12 +983,10 @@ export function createAgentThreadView(config = {}) {
 
       if (section.type === "execute") {
         if (section.executeDisplay.narration) {
-          const narrationBlock = createFormattedMessageBlock(
-            section.executeDisplay.narration,
-            buildAssistantMarkdownClassName("terminal-note")
-          );
+          const narrationBlock = createExecutionNarrationBlock(section.executeDisplay.narration);
 
           if (narrationBlock) {
+            narrationBlock.dataset.executionNarration = "true";
             sectionElement.append(narrationBlock);
           }
         }
@@ -976,6 +1019,146 @@ export function createAgentThreadView(config = {}) {
     });
 
     return bubble;
+  }
+
+  function setElementText(element, text) {
+    if (!element) {
+      return;
+    }
+
+    const normalizedText = String(text || "");
+
+    if (element.textContent !== normalizedText) {
+      element.textContent = normalizedText;
+    }
+  }
+
+  function syncExecutionCodeBlocks(container, blocks, options = {}) {
+    if (!container) {
+      return;
+    }
+
+    const normalizedBlocks = Array.isArray(blocks) ? blocks : [];
+    const existingBlocks = Array.from(container.querySelectorAll(".terminal-code"));
+    const emptyBlockText = options.emptyBlockText ?? "[empty]";
+
+    normalizedBlocks.forEach((block, index) => {
+      const normalizedText = block || emptyBlockText;
+      let inputBlock = existingBlocks[index];
+
+      if (!inputBlock) {
+        inputBlock = document.createElement("pre");
+        inputBlock.className = "terminal-code";
+        container.append(inputBlock);
+      }
+
+      setElementText(inputBlock, normalizedText);
+    });
+
+    for (let index = normalizedBlocks.length; index < existingBlocks.length; index += 1) {
+      existingBlocks[index].remove();
+    }
+  }
+
+  function syncStreamingExecutionNarration(sectionElement, executeDisplay) {
+    if (!sectionElement) {
+      return false;
+    }
+
+    const existingNarration = sectionElement.querySelector("[data-execution-narration]");
+    const narrationText = typeof executeDisplay?.narration === "string" ? executeDisplay.narration.trim() : "";
+
+    if (!narrationText) {
+      existingNarration?.remove();
+      return true;
+    }
+
+    if (existingNarration) {
+      return true;
+    }
+
+    const nextNarration = createExecutionNarrationBlock(narrationText);
+
+    if (!nextNarration) {
+      existingNarration?.remove();
+      return true;
+    }
+
+    nextNarration.dataset.executionNarration = "true";
+
+    const executionCard = sectionElement.querySelector("[data-execution-card]");
+
+    if (executionCard) {
+      sectionElement.insertBefore(nextNarration, executionCard);
+      return true;
+    }
+
+    sectionElement.prepend(nextNarration);
+    return true;
+  }
+
+  function patchStreamingExecutionRow(row, message) {
+    if (!row || !message || message.role !== "assistant" || message.streaming !== true) {
+      return false;
+    }
+
+    const executeDisplay = parseExecuteDisplayContent(message.content);
+
+    if (!executeDisplay) {
+      return false;
+    }
+
+    const bubble = row.querySelector(".message-bubble");
+    const sectionElement = bubble?.querySelector(".assistant-sequence-section");
+    const executionCard = sectionElement?.querySelector("[data-execution-card]");
+    const inputPane = executionCard?.querySelector('[data-execution-pane="input"]');
+    const inputLabel = inputPane?.querySelector(".execution-pane-label");
+    const inputBody = executionCard?.querySelector("[data-execution-input-list]");
+    const status = executionCard?.querySelector("[data-execution-status]");
+    const statusIcon = executionCard?.querySelector("[data-execution-status-icon]");
+    const summaryTitle = executionCard?.querySelector("[data-execution-summary-title]");
+
+    if (!bubble || !sectionElement || !executionCard || !inputPane || !inputBody || !status || !statusIcon || !summaryTitle) {
+      return false;
+    }
+
+    bubble.classList.add("is-streaming");
+    row.dataset.streamingMessageId = message.id;
+    const lineCount = getExecuteDisplayLineCount(executeDisplay);
+    const summaryState = getExecutionSummaryState([], "generating");
+
+    status.className = `execution-status ${summaryState.tone}`;
+    setElementText(statusIcon, summaryState.iconName);
+    setElementText(summaryTitle, formatExecutionSummaryLabel(lineCount, "generating", []));
+    setElementText(inputLabel, lineCount ? `Input • ${formatLineCount(lineCount)}` : "Input");
+
+    syncStreamingExecutionNarration(sectionElement, executeDisplay);
+    syncExecutionCodeBlocks(inputBody, executeDisplay.blocks, {
+      emptyBlockText: ""
+    });
+
+    const copyInputButton = executionCard.querySelector('[data-terminal-action="copy-input"]');
+    const copyOutputButton = executionCard.querySelector('[data-terminal-action="copy-output"]');
+    const rerunButton = executionCard.querySelector('[data-terminal-action="rerun"]');
+    const rerunButtonIcon = rerunButton?.querySelector("x-icon");
+    const rerunButtonLabel = rerunButton?.querySelector("span");
+
+    if (copyInputButton) {
+      copyInputButton.disabled = !getTerminalInputText(executeDisplay);
+    }
+
+    if (copyOutputButton) {
+      copyOutputButton.disabled = true;
+    }
+
+    if (rerunButton) {
+      rerunButton.disabled = true;
+      rerunButton.classList.remove("is-active");
+      setElementText(rerunButtonIcon, "replay");
+      setElementText(rerunButtonLabel, "Run again");
+    }
+
+    return true;
   }
 
   function createStandaloneExecutionOutputBubble(outputResults, messageId = "") {
@@ -1086,51 +1269,29 @@ export function createAgentThreadView(config = {}) {
       const standaloneOutputResults = getExecutionOutputResults(message);
 
       if (executeDisplay) {
-        const sections = [];
-        let cursor = index;
-
-        while (cursor < history.length) {
-          const assistantMessage = history[cursor];
-
-          if (assistantMessage.role !== "assistant") {
-            break;
-          }
-
-          const assistantExecuteDisplay = parseExecuteDisplayContent(assistantMessage.content);
-
-          if (assistantExecuteDisplay) {
-            const nextMessage = history[cursor + 1];
-            const outputResults = Array.isArray(outputOverrides[assistantMessage.id])
-              ? outputOverrides[assistantMessage.id]
-              : nextMessage
-                ? getExecutionOutputResults(nextMessage)
-                : null;
-
-            sections.push({
-              executeDisplay: assistantExecuteDisplay,
-              message: assistantMessage,
-              outputResults,
-              type: "execute"
-            });
-
-            cursor += outputResults ? 2 : 1;
-            continue;
-          }
-
-          sections.push({
-            message: assistantMessage,
-            type: "text"
-          });
-          cursor += 1;
-          break;
-        }
+        const nextMessage = history[index + 1];
+        const outputResults = Array.isArray(outputOverrides[message.id])
+          ? outputOverrides[message.id]
+          : nextMessage
+            ? getExecutionOutputResults(nextMessage)
+            : null;
 
         groups.push({
-          sections,
+          sections: [
+            {
+              executeDisplay,
+              message,
+              outputResults,
+              type: "execute"
+            }
+          ],
           type: "assistant-sequence"
         });
 
-        index = cursor - 1;
+        if (outputResults) {
+          index += 1;
+        }
+
         continue;
       }
 
@@ -1152,6 +1313,156 @@ export function createAgentThreadView(config = {}) {
     return groups;
   }
 
+  function getAttachmentsRenderSignature(attachments) {
+    if (!Array.isArray(attachments) || !attachments.length) {
+      return "";
+    }
+
+    return attachments
+      .map((attachment) =>
+        [
+          attachment?.id || "",
+          attachment?.name || "",
+          attachment?.type || "",
+          attachment?.size || 0,
+          attachment?.lastModified || 0,
+          attachment?.available === false ? "0" : "1"
+        ].join("\u241f")
+      )
+      .join("\u241e");
+  }
+
+  function getExecutionResultsRenderSignature(results) {
+    if (!Array.isArray(results) || !results.length) {
+      return "";
+    }
+
+    return results
+      .map((result) =>
+        [
+          String(result?.status || ""),
+          Array.isArray(result?.outputLines) ? result.outputLines.join("\u240a") : ""
+        ].join("\u241f")
+      )
+      .join("\u241e");
+  }
+
+  function getMessageRenderSignature(message) {
+    if (!message || typeof message !== "object") {
+      return "";
+    }
+
+    return [
+      message.id || "",
+      message.role || "",
+      message.kind || "",
+      message.streaming === true ? "1" : "0",
+      String(message.content || ""),
+      getAttachmentsRenderSignature(message.attachments)
+    ].join("\u241f");
+  }
+
+  function getGroupRenderKey(group) {
+    if (!group || typeof group !== "object") {
+      return "";
+    }
+
+    if (group.type === "assistant-sequence") {
+      return `assistant-sequence:${group.sections.map((section) => section?.message?.id || "").join("|")}`;
+    }
+
+    if (group.type === "standalone-output") {
+      return `standalone-output:${group.messageId || ""}`;
+    }
+
+    return `standard:${group.message?.id || ""}`;
+  }
+
+  function getGroupRenderSignature(group, options = {}) {
+    if (!group || typeof group !== "object") {
+      return "";
+    }
+
+    if (group.type === "assistant-sequence") {
+      return group.sections
+        .map((section) => {
+          if (section?.type === "execute") {
+            return [
+              "execute",
+              getMessageRenderSignature(section.message),
+              getExecutionResultsRenderSignature(section.outputResults),
+              section?.message?.id === options.rerunningMessageId ? "rerunning" : ""
+            ].join("\u241f");
+          }
+
+          return ["text", getMessageRenderSignature(section.message)].join("\u241f");
+        })
+        .join("\u241e");
+    }
+
+    if (group.type === "standalone-output") {
+      return [
+        group.messageId || "",
+        getExecutionResultsRenderSignature(group.outputResults)
+      ].join("\u241f");
+    }
+
+    return getMessageRenderSignature(group.message);
+  }
+
+  function setRowRenderState(row, group, options = {}) {
+    if (!row) {
+      return row;
+    }
+
+    row.__spaceThreadRenderKey = getGroupRenderKey(group);
+    row.__spaceThreadRenderSignature = getGroupRenderSignature(group, options);
+    return row;
+  }
+
+  function buildGroupRow(group, options = {}) {
+    let row = null;
+
+    if (group.type === "assistant-sequence") {
+      row = createMessageRow("assistant", createAssistantSequenceBubble(group, options), "terminal-row");
+    } else if (group.type === "standalone-output") {
+      row = createMessageRow(
+        "assistant",
+        createStandaloneExecutionOutputBubble(group.outputResults, group.messageId),
+        "terminal-row execution-output-row"
+      );
+    } else if (group.message.role === "assistant" && group.message.streaming) {
+      row = createStreamingAssistantRow(group.message, options);
+    } else {
+      row = createMessageRow(group.message.role, createStandardMessageBubble(group.message));
+    }
+
+    return setRowRenderState(row, group, options);
+  }
+
+  function buildStreamingRenderGroup(message) {
+    const executeDisplay = parseExecuteDisplayContent(message?.content);
+
+    if (executeDisplay) {
+      return {
+        sections: [
+          {
+            executeDisplay,
+            message,
+            outputResults: null,
+            type: "execute"
+          }
+        ],
+        type: "assistant-sequence"
+      };
+    }
+
+    return {
+      message,
+      type: "standard"
+    };
+  }
+
   function renderMessages(thread, history, options = {}) {
     if (!thread) {
       return;
@@ -1159,17 +1470,15 @@ export function createAgentThreadView(config = {}) {
 
     const queuedMessages = Array.isArray(options.queuedMessages) ? options.queuedMessages : [];
     const renderedMessages = queuedMessages.length ? [...history, ...queuedMessages] : history;
+    const groups = renderedMessages.length ? buildMessageDisplayGroups(renderedMessages, options) : [];
 
-    if (!renderedMessages.length && thread.classList.contains("is-empty")) {
+    if (!groups.length && thread.classList.contains("is-empty")) {
       return;
     }
 
     const scrollSnapshots = captureThreadScrollSnapshots(thread, options);
 
-    thread.innerHTML = "";
-    thread.classList.remove("is-empty");
-
-    if (!renderedMessages.length) {
+    if (!groups.length) {
       const builder =
         typeof options.createEmptyState === "function"
           ? options.createEmptyState
@@ -1183,6 +1492,7 @@ export function createAgentThreadView(config = {}) {
           })
         : buildDefaultEmptyState(options.emptyStateText || defaultEmptyStateText);
 
+      thread.innerHTML = "";
       thread.classList.add("is-empty");
       thread.append(emptyState || buildDefaultEmptyState(options.emptyStateText || defaultEmptyStateText));
       window.requestAnimationFrame(() => {
@@ -1191,23 +1501,39 @@ export function createAgentThreadView(config = {}) {
       return;
     }
 
-    buildMessageDisplayGroups(renderedMessages, options).forEach((group) => {
-      if (group.type === "assistant-sequence") {
-        thread.append(createMessageRow("assistant", createAssistantSequenceBubble(group, options), "terminal-row"));
-      } else if (group.type === "standalone-output") {
-        thread.append(
-          createMessageRow(
-            "assistant",
-            createStandaloneExecutionOutputBubble(group.outputResults, group.messageId),
-            "terminal-row execution-output-row"
-          )
-        );
-      } else if (group.message.role === "assistant" && group.message.streaming) {
-        thread.append(createStreamingAssistantRow(group.message, options));
-      } else {
-        thread.append(createMessageRow(group.message.role, createStandardMessageBubble(group.message)));
+    const wasEmpty = thread.classList.contains("is-empty");
+    const existingRows = wasEmpty ? [] : Array.from(thread.children);
+    let stablePrefixLength = 0;
+    const comparisonCount = Math.min(existingRows.length, groups.length);
+
+    thread.classList.remove("is-empty");
+
+    if (wasEmpty) {
+      thread.innerHTML = "";
+    }
+
+    while (stablePrefixLength < comparisonCount) {
+      const existingRow = existingRows[stablePrefixLength];
+      const group = groups[stablePrefixLength];
+
+      if (
+        !existingRow ||
+        existingRow.__spaceThreadRenderKey !== getGroupRenderKey(group) ||
+        existingRow.__spaceThreadRenderSignature !== getGroupRenderSignature(group, options)
+      ) {
+        break;
       }
-    });
+
+      stablePrefixLength += 1;
+    }
+
+    for (let index = existingRows.length - 1; index >= stablePrefixLength; index -= 1) {
+      existingRows[index].remove();
+    }
+
+    for (let index = stablePrefixLength; index < groups.length; index += 1) {
+      thread.append(buildGroupRow(groups[index], options));
+    }
 
     window.requestAnimationFrame(() => {
       restoreThreadScrollSnapshots(thread, scrollSnapshots, options);
@@ -1236,6 +1562,7 @@ export function createAgentThreadView(config = {}) {
       }
 
       textBlock.textContent = message.content || "Streaming...";
+      setRowRenderState(row, buildStreamingRenderGroup(message), options);
 
       if (stickyBottom && scroller) {
         scroller.scrollTop = getMaxScrollTop(scroller);
@@ -1244,19 +1571,24 @@ export function createAgentThreadView(config = {}) {
       return true;
     }
 
-    const existingExecutionCard = row.querySelector("[data-execution-card]");
-    const wasOpen = existingExecutionCard?.open === true;
-    const nextRow = createStreamingAssistantRow(message, options);
+    if (!patchStreamingExecutionRow(row, message)) {
+      const existingExecutionCard = row.querySelector("[data-execution-card]");
+      const wasOpen = existingExecutionCard?.open === true;
+      const nextRow = createStreamingAssistantRow(message, options);
+      setRowRenderState(nextRow, buildStreamingRenderGroup(message), options);
 
-    if (wasOpen) {
-      const nextExecutionCard = nextRow.querySelector("[data-execution-card]");
+      if (wasOpen) {
+        const nextExecutionCard = nextRow.querySelector("[data-execution-card]");
 
-      if (nextExecutionCard) {
-        nextExecutionCard.open = true;
+        if (nextExecutionCard) {
+          nextExecutionCard.open = true;
+        }
       }
-    }
 
-    row.replaceWith(nextRow);
+      row.replaceWith(nextRow);
+    } else {
+      setRowRenderState(row, buildStreamingRenderGroup(message), options);
+    }
 
     if (stickyBottom && scroller) {
       scroller.scrollTop = getMaxScrollTop(scroller);

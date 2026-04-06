@@ -1,4 +1,5 @@
 const ADMIN_AGENT_AVATAR_PATH = "/mod/_core/admin/res/helmet_no_bg_256.webp";
+const ADMIN_GROUP_ID = "_admin";
 
 const tabs = [
   { id: "dashboard", icon: "space_dashboard", label: "Dashboard" },
@@ -49,7 +50,10 @@ const pageModel = {
   },
 
   get isCurrentUserAdmin() {
-    return this.userSelfInfo?.isAdmin === true;
+    return (
+      Array.isArray(this.userSelfInfo?.groups) &&
+      this.userSelfInfo.groups.includes(ADMIN_GROUP_ID)
+    );
   },
 
   isKnownTab(tabId) {

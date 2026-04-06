@@ -1,13 +1,13 @@
 :root {
   --space-dialog-width: min(720px, calc(100vw - 32px));
   --space-dialog-width-wide: min(860px, calc(100vw - 32px));
-  --space-dialog-padding: 1.3rem;
-  --space-dialog-radius: 1.5rem;
+  --space-dialog-padding: 18px;
+  --space-dialog-radius: 16px;
   --space-dialog-border: var(--color-border-soft);
-  --space-dialog-surface: rgba(11, 18, 34, 0.9);
-  --space-dialog-shadow: 0 32px 96px rgba(1, 5, 14, 0.56);
+  --space-dialog-surface: #0c1626;
+  --space-dialog-shadow: none;
   --space-dialog-backdrop: var(--color-overlay);
-  --space-field-bg: rgba(18, 29, 51, 0.78);
+  --space-field-bg: #101b2d;
   --space-field-border: var(--color-border-soft);
   --space-field-focus-border: rgba(148, 188, 255, 0.3);
   --space-field-focus-ring: rgba(148, 188, 255, 0.12);
@@ -132,6 +132,23 @@
   backdrop-filter: blur(8px);
 }
 
+.chat-dialog {
+  --space-button-radius: 10px;
+  --space-button-gap: 6px;
+  --space-button-padding-y: 0.5rem;
+  --space-button-padding-x: 0.85rem;
+  --space-button-primary-shadow: none;
+  --space-button-confirm-shadow: none;
+  --space-button-secondary-border: transparent;
+  --space-button-secondary-border-hover: transparent;
+  --space-button-secondary-bg: transparent;
+  --space-button-secondary-bg-hover: rgba(19, 32, 51, 0.94);
+  --space-button-danger-border: transparent;
+  --space-button-danger-border-hover: transparent;
+  --space-button-danger-bg: transparent;
+  --space-button-danger-bg-hover: rgba(255, 141, 152, 0.12);
+}
+
 .dialog-card {
   width: min(var(--space-dialog-width), calc(100vw - 32px));
   max-width: calc(100vw - 32px);
@@ -182,6 +199,28 @@
 .dialog-icon-button {
   min-width: 2.7rem;
   padding-inline: 0.72rem;
+}
+
+.chat-dialog .secondary-button,
+.chat-dialog .primary-button,
+.chat-dialog .confirm-button {
+  min-height: 34px;
+  padding: 0.5rem 0.85rem;
+  border-width: 0;
+  border-radius: 10px;
+}
+
+.chat-dialog .secondary-button {
+  background: transparent;
+}
+
+.chat-dialog .secondary-button:hover:not(:disabled),
+.chat-dialog .secondary-button:focus-visible:not(:disabled) {
+  background: var(--space-option-hover-bg);
+}
+
+.chat-dialog .secondary-button.danger {
+  color: var(--color-danger);
 }
 
 .dialog-segmented-button x-icon,

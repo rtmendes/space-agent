@@ -10,22 +10,22 @@ Documentation is top priority for this subtree. After any change under `ext/skil
 
 ## Documentation Hierarchy
 
-This parent doc owns the nested development-skill map, source-doc mirror rules, and update policy. The child `skill.md` files own the concrete guidance for one development area each.
+This parent doc owns the nested development-skill map, source-doc mirror rules, and update policy. The child `SKILL.md` files own the concrete guidance for one development area each.
 
 Current child skills:
 
-- `skill.md`: router skill that tells the agent which deeper development skills to load next
-- `frontend-runtime/skill.md`: editable browser-runtime, store, visual, and framework usage rules
-- `modules-routing/skill.md`: module placement, routed view creation, and router seam rules
-- `extensions-components/skill.md`: `ext/html/`, `ext/js/`, `x-extension`, and `x-component` contracts
-- `app-files-apis/skill.md`: frontend use of `space.api`, app-file paths, and permission-aware data access
-- `layers-ownership/skill.md`: `L0` or `L1` or `L2`, groups, users, and override order
-- `skills/skill.md`: authoring chat-agent skills under `ext/skills/`
-- `backend-reference/skill.md`: read-only backend architecture reference for frontend work
+- `SKILL.md`: router skill that tells the agent which deeper development skills to load next
+- `frontend-runtime/SKILL.md`: editable browser-runtime, store, visual, and framework usage rules
+- `modules-routing/SKILL.md`: module placement, routed view creation, and router seam rules
+- `extensions-components/SKILL.md`: `ext/html/`, `ext/js/`, `x-extension`, and `x-component` contracts
+- `app-files-apis/SKILL.md`: frontend use of `space.api`, app-file paths, and permission-aware data access
+- `layers-ownership/SKILL.md`: `L0` or `L1` or `L2`, groups, users, and override order
+- `skills/SKILL.md`: authoring chat-agent skills under `ext/skills/`
+- `backend-reference/SKILL.md`: read-only backend architecture reference for frontend work
 
 Update rules:
 
-- update `skill.md` when the routing map, recommended load order, or allowed development scope changes
+- update `SKILL.md` when the routing map, recommended load order, or allowed development scope changes
 - update the matching child skill when its mirrored source contract changes
 - keep the child skills consistent with the source docs listed below
 - remove stale guidance immediately when a source contract changes
@@ -40,21 +40,22 @@ This subtree owns:
 
 Source-doc mirror map:
 
-- `frontend-runtime/skill.md` mirrors `/app/AGENTS.md` and `/app/L0/_all/mod/_core/framework/AGENTS.md`
-- `modules-routing/skill.md` mirrors `/app/AGENTS.md` and `/app/L0/_all/mod/_core/router/AGENTS.md`
-- `extensions-components/skill.md` mirrors `/app/AGENTS.md` and `/app/L0/_all/mod/_core/framework/AGENTS.md`
-- `app-files-apis/skill.md` mirrors `/app/AGENTS.md`, `/server/api/AGENTS.md`, and `/server/lib/customware/AGENTS.md`, including the `user_self_info` scope snapshot contract
-- `layers-ownership/skill.md` mirrors `/AGENTS.md`, `/app/AGENTS.md`, `/server/lib/customware/AGENTS.md`, and `/server/lib/auth/AGENTS.md`
-- `skills/skill.md` mirrors `/app/L0/_all/mod/_core/onscreen_agent/AGENTS.md` and the onscreen skill runtime contract
-- `backend-reference/skill.md` mirrors `/server/AGENTS.md`, `/server/api/AGENTS.md`, `/server/lib/customware/AGENTS.md`, and `/server/lib/auth/AGENTS.md`
+- `frontend-runtime/SKILL.md` mirrors `/app/AGENTS.md` and `/app/L0/_all/mod/_core/framework/AGENTS.md`
+- `modules-routing/SKILL.md` mirrors `/app/AGENTS.md` and `/app/L0/_all/mod/_core/router/AGENTS.md`
+- `extensions-components/SKILL.md` mirrors `/app/AGENTS.md` and `/app/L0/_all/mod/_core/framework/AGENTS.md`
+- `app-files-apis/SKILL.md` mirrors `/app/AGENTS.md`, `/server/api/AGENTS.md`, and `/server/lib/customware/AGENTS.md`, including the `user_self_info` identity contract and writable-root derivation rules
+- `layers-ownership/SKILL.md` mirrors `/AGENTS.md`, `/app/AGENTS.md`, `/server/lib/customware/AGENTS.md`, and `/server/lib/auth/AGENTS.md`
+- `skills/SKILL.md` mirrors `/app/L0/_all/mod/_core/onscreen_agent/AGENTS.md` and the onscreen skill runtime contract
+- `backend-reference/SKILL.md` mirrors `/server/AGENTS.md`, `/server/api/AGENTS.md`, `/server/lib/customware/AGENTS.md`, and `/server/lib/auth/AGENTS.md`
 
 ## Local Contracts
 
 - the router skill must tell the agent to load one or more deeper skills before making development changes
-- the router skill and `app-files-apis/skill.md` must tell the agent to inspect `space.api.userSelfInfo().scope` before choosing writable app roots
+- the router skill and `app-files-apis/SKILL.md` must tell the agent to inspect `space.api.userSelfInfo()` and derive writable app roots from `username`, `managedGroups`, and `_admin` membership in `groups`
 - this skill set only authorizes frontend development in `app/`; the backend reference skill is for understanding contracts, not for editing `server/`, `commands/`, or `packaging/`
 - nested skills should stay focused on one area rather than repeating the whole architecture
-- `frontend-runtime/skill.md` must keep the shared runtime helper list current, including browser utilities such as `space.utils.markdown.render(...)`
+- `frontend-runtime/SKILL.md` must keep the shared runtime helper list current, including browser utilities such as `space.utils.markdown.render(...)`
+- prompt-facing skill text must stay token-budgeted; keep catalog-facing descriptions terse and keep always-loaded skill guidance compact
 - when a complex area grows, add another nested skill instead of bloating the router skill
 - if a mirrored contract changes in a source doc, update the affected development skills in the same session even if this subtree itself was not directly edited
 

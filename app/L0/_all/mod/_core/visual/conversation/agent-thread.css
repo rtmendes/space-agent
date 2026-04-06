@@ -340,7 +340,11 @@
 
 .agent-thread-surface .assistant-sequence-section {
   display: grid;
-  gap: 8px;
+  gap: 2px;
+}
+
+.agent-thread-surface .assistant-sequence-section.is-followup {
+  gap: 4px;
 }
 
 .agent-thread-surface .assistant-sequence-section + .assistant-sequence-section {
@@ -380,6 +384,10 @@
 .agent-thread-surface .terminal-note,
 .agent-thread-surface .terminal-followup {
   margin: 0;
+}
+
+.agent-thread-surface .terminal-note {
+  line-height: 1.5;
 }
 
 .agent-thread-surface .message-attachments {

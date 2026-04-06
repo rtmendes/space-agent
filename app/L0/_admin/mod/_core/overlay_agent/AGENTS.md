@@ -12,17 +12,18 @@ Documentation is top priority for this module. After any change under this subtr
 
 This module owns:
 
-- `ext/skills/admin-user-management/skill.md`: top-level admin user-management router skill
-- `ext/skills/admin-user-management/users/skill.md`: user-account storage and mutation guidance
-- `ext/skills/admin-user-management/groups/skill.md`: group membership and manager-graph guidance
+- `ext/skills/admin-user-management/SKILL.md`: top-level admin user-management router skill
+- `ext/skills/admin-user-management/users/SKILL.md`: user-account storage and mutation guidance
+- `ext/skills/admin-user-management/groups/SKILL.md`: group membership and manager-graph guidance
 
 ## Local Contracts
 
-- this module contributes onscreen skills only through `ext/skills/.../skill.md`
+- this module contributes onscreen skills only through `ext/skills/.../SKILL.md`
 - because it lives under `L0/_admin`, its skill files should only be readable through the existing group-based app-file permission model for `_admin` users
 - top-level skill ids in this module must stay unique against readable `_all` skills; admin users read both scopes, so id collisions would hide the conflicting skills from the catalog
 - this module must not duplicate or fork the shared onscreen-agent runtime; runtime behavior still belongs to `_all/mod/_core/onscreen_agent/`
 - this module's skill content should stay aligned with the auth, group, and file-layout contracts documented under `server/lib/auth/`, `server/lib/customware/`, `server/api/`, and `commands/`
+- admin-gated skill guidance should verify `_admin` membership through `space.api.userSelfInfo().groups`, not a separate boolean field
 
 ## Development Guidance
 

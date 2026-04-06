@@ -1,6 +1,6 @@
 ---
 name: File Download
-description: Trigger browser file downloads from app filesystem paths, runtime-generated in-memory content, or external URLs.
+description: Download app files, generated blobs, or external URLs
 ---
 
 Use this skill when the user asks how to let the browser download a file, whether it lives in the app filesystem, is generated at runtime, or comes from an external URL.

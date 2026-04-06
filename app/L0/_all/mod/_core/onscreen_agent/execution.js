@@ -8,7 +8,6 @@ const CONSOLE_METHODS = ["log", "info", "warn", "error", "debug", "dir", "table"
 const INTERNAL_SCOPE_KEYS = new Set(["__spaceScope", "__spaceWindow"]);
 const WINDOW_ALIAS_KEYS = new Set(["page", "window", "globalThis", "self"]);
 const MAX_FORMAT_DEPTH = 2;
-
 function isLoadedOnscreenSkill(value) {
   return Boolean(value?.__spaceSkill) && typeof value?.content === "string" && typeof value?.path === "string";
 }
@@ -104,6 +103,7 @@ function findExecutionBlock(content) {
         code: content.slice(codeStart),
         codeStart,
         index,
+        leadingText: content.slice(0, index).trim(),
         raw: content.slice(index)
       };
     }
@@ -117,6 +117,84 @@ function findExecutionBlock(content) {
 export function extractExecuteBlocks(content) {
   const block = findExecutionBlock(content);
   return block ? [block] : [];
+}
+
+function countExecutionSeparators(content) {
+  if (typeof content !== "string" || !content) {
+    return 0;
+  }
+
+  let count = 0;
+  let searchIndex = 0;
+
+  while (searchIndex < content.length) {
+    const separatorIndex = content.indexOf(EXECUTION_SEPARATOR, searchIndex);
+
+    if (separatorIndex === -1) {
+      break;
+    }
+
+    count += 1;
+    searchIndex = separatorIndex + EXECUTION_SEPARATOR.length;
+  }
+
+  return count;
+}
+
+function hasInlineExecutionSeparator(content) {
+  if (typeof content !== "string" || !content) {
+    return false;
+  }
+
+  let searchIndex = 0;
+
+  while (searchIndex < content.length) {
+    const separatorIndex = content.indexOf(EXECUTION_SEPARATOR, searchIndex);
+
+    if (separatorIndex === -1) {
+      return false;
+    }
+
+    if (!isSeparatorLine(content, separatorIndex)) {
+      return true;
+    }
+
+    searchIndex = separatorIndex + EXECUTION_SEPARATOR.length;
+  }
+
+  return false;
+}
+
+function createExecutionPlanError(message) {
+  const error = new Error(message);
+  error.name = "ExecutionPlanError";
+  return error;
+}
+
+function hasWidgetDiscoveryHelper(code = "") {
+  return /\bspace\.(?:current|spaces)\.(?:listWidgets|readWidget)\s*\(/u.test(code);
+}
+
+function hasWidgetMutationHelper(code = "") {
+  return /\bspace\.(?:current|spaces)\.(?:patchWidget|renderWidget|upsertWidget)\s*\(/u.test(code);
+}
+
+function validateExecutionBlockPlan(block) {
+  const code = normalizeExecutionSource(block?.code);
+
+  if (hasWidgetDiscoveryHelper(code) && hasWidgetMutationHelper(code)) {
+    return createExecutionPlanError(
+      "Widget discovery and dependent widget mutation must be separate turns. End after listWidgets(...) or readWidget(...), wait for the next turn, then patch or render."
+    );
+  }
+
+  if (/\bspace\.current\.readWidget\s*\(/u.test(code) && /\bspace\.chat\.transient\b/u.test(code)) {
+    return createExecutionPlanError(
+      "Do not read freshly refreshed TRANSIENT in the same execution block as readWidget(...). End after readWidget(...), then use TRANSIENT on the next turn."
+    );
+  }
+
+  return null;
 }
 
 function createAsyncRunner(code) {
@@ -548,7 +626,7 @@ function appendExecutionTextBlock(lines, label, value) {
   const normalizedValue = normalizeExecutionTextBlock(value);
   const valueLines = normalizedValue.split("\n");
 
-  lines.push(`${label}:`);
+  lines.push(`${label}↓`);
   lines.push(...valueLines);
 }
 
@@ -620,7 +698,172 @@ function createExecutionJsonReplacer(targetWindow) {
   };
 }
 
-function formatExecutionResultValue(value, options) {
+function normalizeExecutionStructuredResultValue(value, options = {}) {
+  const { targetWindow, seen = new WeakSet() } = options;
+
+  if (value === null || value === undefined) {
+    return value;
+  }
+
+  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+    return value;
+  }
+
+  if (typeof value === "bigint") {
+    return String(value);
+  }
+
+  if (typeof value === "symbol") {
+    return value.toString();
+  }
+
+  if (typeof value === "function") {
+    return `[Function ${value.name || "anonymous"}]`;
+  }
+
+  if (value instanceof Error) {
+    return {
+      message: value.message || String(value),
+      name: value.name || "Error",
+      stack: value.stack || undefined
+    };
+  }
+
+  if (value === targetWindow) {
+    return `[Window ${targetWindow.location?.href || ""}]`;
+  }
+
+  if (targetWindow.Document && value instanceof targetWindow.Document) {
+    return `[Document ${value.URL || ""}]`;
+  }
+
+  if (targetWindow.Location && value instanceof targetWindow.Location) {
+    return `[Location ${value.href || ""}]`;
+  }
+
+  if (isNodeLike(targetWindow, value)) {
+    return summarizeNode(targetWindow, value);
+  }
+
+  if (targetWindow.NodeList && value instanceof targetWindow.NodeList) {
+    return Array.from(value, (entry) =>
+      normalizeExecutionStructuredResultValue(entry, {
+        seen,
+        targetWindow
+      })
+    );
+  }
+
+  if (targetWindow.HTMLCollection && value instanceof targetWindow.HTMLCollection) {
+    return Array.from(value, (entry) =>
+      normalizeExecutionStructuredResultValue(entry, {
+        seen,
+        targetWindow
+      })
+    );
+  }
+
+  if (Array.isArray(value)) {
+    return value.map((entry) =>
+      normalizeExecutionStructuredResultValue(entry, {
+        seen,
+        targetWindow
+      })
+    );
+  }
+
+  if (value instanceof Map) {
+    return Array.from(value.entries(), ([key, entryValue]) => ({
+      key: normalizeExecutionStructuredResultValue(key, {
+        seen,
+        targetWindow
+      }),
+      value: normalizeExecutionStructuredResultValue(entryValue, {
+        seen,
+        targetWindow
+      })
+    }));
+  }
+
+  if (value instanceof Set) {
+    return Array.from(value.values(), (entry) =>
+      normalizeExecutionStructuredResultValue(entry, {
+        seen,
+        targetWindow
+      })
+    );
+  }
+
+  if (typeof value === "object") {
+    if (isLoadedOnscreenSkill(value)) {
+      return `[Loaded skill ${value.path}]`;
+    }
+
+    if (seen.has(value)) {
+      return "[Circular]";
+    }
+
+    seen.add(value);
+
+    return Object.fromEntries(
+      Object.entries(value).map(([key, entryValue]) => [
+        key,
+        normalizeExecutionStructuredResultValue(entryValue, {
+          seen,
+          targetWindow
+        })
+      ])
+    );
+  }
+
+  return String(value);
+}
+
+function formatExecutionStructuredResultValueAsYaml(value, options = {}) {
+  const { targetWindow } = options;
+  const yaml = targetWindow?.space?.utils?.yaml;
+
+  if (!yaml || typeof yaml.stringify !== "function") {
+    return "";
+  }
+
+  const normalizedValue = normalizeExecutionStructuredResultValue(value, {
+    targetWindow
+  });
+
+  try {
+    if (Array.isArray(normalizedValue)) {
+      const wrappedYaml = normalizeExecutionTextBlock(
+        yaml.stringify({
+          items: normalizedValue
+        })
+      );
+
+      if (wrappedYaml.startsWith("items:\n")) {
+        return wrappedYaml
+          .slice("items:\n".length)
+          .replace(/^  /gmu, "")
+          .trimEnd();
+      }
+
+      if (wrappedYaml.startsWith("items: ")) {
+        return wrappedYaml.slice("items: ".length).trimEnd();
+      }
+
+      return wrappedYaml.trimEnd();
+    }
+
+    if (normalizedValue && typeof normalizedValue === "object") {
+      return normalizeExecutionTextBlock(yaml.stringify(normalizedValue)).trimEnd();
+    }
+  } catch (error) {
+    // Fall back to JSON below when the lightweight YAML helper cannot serialize the shape.
+  }
+
+  return "";
+}
+
+export function formatExecutionResultValue(value, options) {
   const { targetWindow } = options;
 
   if (value === undefined) {
@@ -650,6 +893,14 @@ function formatExecutionResultValue(value, options) {
   }
 
   if (typeof value === "object") {
+    const yamlResult = formatExecutionStructuredResultValueAsYaml(value, {
+      targetWindow
+    });
+
+    if (yamlResult) {
+      return yamlResult;
+    }
+
     try {
       return normalizeExecutionTextBlock(JSON.stringify(value, createExecutionJsonReplacer(targetWindow), 2));
     } catch (error) {
@@ -812,6 +1063,41 @@ export function createExecutionContext(options = {}) {
     },
     async executeFromContent(content, options = {}) {
       const blocks = extractExecuteBlocks(content);
+      const separatorCount = countExecutionSeparators(content);
+
+      if (separatorCount > 1) {
+        return [{
+          block: null,
+          error: createExecutionError(
+            createExecutionPlanError(
+              "Execution messages may contain _____javascript at most once, and it must appear on its own line."
+            )
+          ),
+          loadedSkills: [],
+          logs: [],
+          result: undefined,
+          resultText: "",
+          runId: executionContext.runCount,
+          status: "error"
+        }];
+      }
+
+      if (hasInlineExecutionSeparator(content)) {
+        return [{
+          block: null,
+          error: createExecutionError(
+            createExecutionPlanError(
+              "_____javascript must be on its own line. End the explanatory sentence, insert a newline, then place _____javascript alone on the next line."
+            )
+          ),
+          loadedSkills: [],
+          logs: [],
+          result: undefined,
+          resultText: "",
+          runId: executionContext.runCount,
+          status: "error"
+        }];
+      }
 
       if (!blocks.length) {
         return [];
@@ -821,6 +1107,7 @@ export function createExecutionContext(options = {}) {
 
       for (let index = 0; index < blocks.length; index += 1) {
         const block = blocks[index];
+        const planError = validateExecutionBlockPlan(block);
 
         if (typeof options.onBeforeBlock === "function") {
           await options.onBeforeBlock({
@@ -829,6 +1116,20 @@ export function createExecutionContext(options = {}) {
             index,
             total: blocks.length
           });
+        }
+
+        if (planError) {
+          results.push({
+            block,
+            error: createExecutionError(planError),
+            loadedSkills: [],
+            logs: [],
+            result: undefined,
+            resultText: "",
+            runId: executionContext.runCount,
+            status: "error"
+          });
+          continue;
         }
 
         results.push({

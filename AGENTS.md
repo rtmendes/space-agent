@@ -69,6 +69,7 @@ These rules apply across the codebase:
 - prefer composition, registries, and stable module boundaries over ad hoc cross-dependencies
 - code must stay clean, readable, and reusable
 - avoid boilerplate and ceremony unless they solve a real maintenance, safety, or clarity problem
+- do not keep compatibility shims, wrapper modules, alias seams, or mirrored code paths unless the user explicitly asks for compatibility support; prefer updating callsites and removing the old path so the code stays simple and legible
 - use deterministic discovery patterns for pluggable systems
 - keep each handler type in one predictable folder and load implementations by explicit name, config, or convention
 - apply the same deterministic loading rule to API handlers, watched-file handlers, workers, and other extension points that serve the same role

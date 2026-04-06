@@ -93,36 +93,10 @@ type SpaceHealthResult = {
   responsibilities: string[];
 };
 
-type SpaceUserSelfInfoBackendScope = {
-  editable: boolean;
-  repoRoots: string[];
-};
-
-type SpaceUserSelfInfoFrontendScope = {
-  editable: boolean;
-  preferredWritableModuleRoots: string[];
-  readOnlyLayers: string[];
-  readableModuleRoots: string[];
-  readableRoots: string[];
-  repoRoots: string[];
-  writableLayers: string[];
-  writableModuleRootPatterns: string[];
-  writableModuleRoots: string[];
-  writableRootPatterns: string[];
-  writableRoots: string[];
-};
-
-type SpaceUserSelfInfoScope = {
-  backend: SpaceUserSelfInfoBackendScope;
-  frontend: SpaceUserSelfInfoFrontendScope;
-};
-
 type SpaceUserSelfInfo = {
   fullName: string;
   groups: string[];
-  isAdmin: boolean;
   managedGroups: string[];
-  scope: SpaceUserSelfInfoScope;
   username: string;
 };
 
@@ -183,6 +157,60 @@ type SpaceChatAttachments = {
   get(attachmentId: string): SpaceChatAttachment | null;
 };
 
+type SpaceChatTransientSection = {
+  content: string;
+  heading: string;
+  key: string;
+  order: number;
+};
+
+type SpaceChatTransient = {
+  clear(): void;
+  delete(key: string): boolean;
+  get(key: string): SpaceChatTransientSection | null;
+  list(): SpaceChatTransientSection[];
+  set(
+    keyOrSection:
+      | string
+      | {
+          content?: string;
+          heading?: string;
+          key?: string;
+          label?: string;
+          order?: number;
+          title?: string;
+        },
+    nextSection?: {
+      content?: string;
+      heading?: string;
+      key?: string;
+      label?: string;
+      order?: number;
+      title?: string;
+    }
+  ): SpaceChatTransientSection | null;
+  upsert(
+    keyOrSection:
+      | string
+      | {
+          content?: string;
+          heading?: string;
+          key?: string;
+          label?: string;
+          order?: number;
+          title?: string;
+        },
+    nextSection?: {
+      content?: string;
+      heading?: string;
+      key?: string;
+      label?: string;
+      order?: number;
+      title?: string;
+    }
+  ): SpaceChatTransientSection | null;
+};
+
 type SpaceChatMessage = {
   attachments: any[];
   content: string;
@@ -195,6 +223,7 @@ type SpaceChatMessage = {
 type SpaceChat = {
   attachments: SpaceChatAttachments;
   messages: SpaceChatMessage[];
+  transient: SpaceChatTransient;
 };
 
 type SpaceUtils = {
@@ -232,20 +261,24 @@ type SpaceWidgetRemovalResult = {
   widgetIds: string[];
 };
 
-// Renderer-only edit against the numbered renderer lines returned by readWidget()/widgetText.
-// Line numbers are zero-based and metadata fields are updated through explicit patchWidget inputs.
+// Renderer-only edit against the zero-based numbered renderer lines shown in the
+// TRANSIENT Current Widget readback. Metadata fields are updated through explicit
+// patchWidget inputs, and multi-edit patches are applied from the highest original
+// line toward the lowest.
 type SpaceWidgetTextEdit = {
   content?: string;
   from: number;
   to?: number;
 };
 
-type SpaceWidgetWriteResult = {
-  space: SpaceSpaceRecord;
+type SpaceWidgetRenderCheck = {
+  checked: boolean;
+  message: string;
+  needsRepair: boolean;
+  ok: boolean | null;
+  phase: string;
+  status: "ok" | "error" | "not_checked";
   widgetId: string;
-  widgetPath: string;
-  // Plain metadata lines first, then `renderer:`, then zero-based numbered renderer lines.
-  widgetText: string;
 };
 
 type SpaceSpaceRecord = {
@@ -283,6 +316,8 @@ type SpaceCurrentNamespace = {
   icon: string;
   iconColor: string;
   id: string;
+  // Returns a compact plain-text catalog: `widgets (id|name|description):` plus one row per widget.
+  listWidgets(): string;
   patchWidget(
     widgetId: string,
     options?: {
@@ -297,10 +332,11 @@ type SpaceCurrentNamespace = {
       size?: SpaceWidgetSize;
       title?: string;
     }
-  ): Promise<SpaceWidgetWriteResult>;
+  ): Promise<string>;
   path: string;
-  // Returns plain metadata lines first, then `renderer:`, then zero-based numbered renderer lines.
+  // Refreshes the TRANSIENT Current Widget readback for the resolved widget and returns a short status string.
   readWidget(widgetName: string): Promise<string>;
+  reloadWidget(widgetId: string): Promise<string>;
   specialInstructions: string;
   title: string;
   updatedAt: string;
@@ -357,11 +393,11 @@ type SpaceSpacesNamespace = {
     spaceId?: string;
     title?: string;
     widgetId: string;
-  }): Promise<SpaceWidgetWriteResult>;
+  }): Promise<string>;
   readSpace(spaceId: string): Promise<SpaceSpaceRecord>;
   rearrangeWidgets(options: { spaceId?: string; widgetLayouts?: SpaceWidgetLayoutInput[]; widgets: SpaceWidgetLayoutInput[] }): Promise<SpaceSpaceRecord>;
   reloadCurrentSpace(): Promise<SpaceSpaceRecord>;
-  reloadWidget(widgetIdOrOptions: string | { spaceId?: string; widgetId: string }): Promise<SpaceSpaceRecord>;
+  reloadWidget(widgetIdOrOptions: string | { spaceId?: string; widgetId: string }): Promise<string>;
   removeWidget(options: { spaceId?: string; widgetId: string }): Promise<{ space: SpaceSpaceRecord; widgetId: string }>;
   removeWidgets(options: { spaceId?: string; widgetIds: string[] }): Promise<SpaceWidgetRemovalResult>;
   removeAllWidgets(spaceIdOrOptions?: string | { id?: string; spaceId?: string }): Promise<SpaceWidgetRemovalResult>;
@@ -391,7 +427,7 @@ type SpaceSpacesNamespace = {
     spaceId?: string;
     title?: string | null;
     widgetId?: string;
-  }): Promise<SpaceWidgetWriteResult>;
+  }): Promise<string>;
   current: SpaceCurrentNamespace | null;
   currentId: string;
   widgetApiVersion: number;

@@ -178,7 +178,7 @@ Current endpoint families:
 - modules: `module_list`, `module_info`, `module_install`, `module_remove`
 - runtime and identity: `extensions_load`, `password_generate`, `user_self_info`
 
-`user_self_info` is the canonical authenticated identity snapshot for browser clients and also exposes a serialized frontend scope derived from the shared app-file permission model.
+`user_self_info` is the canonical authenticated identity snapshot for browser clients. Frontend callers infer writable app roots from `username`, `managedGroups`, and `_admin` membership in `groups` using the shared layer rules.
 
 Detailed endpoint behavior now lives in `server/api/AGENTS.md`.
 

@@ -5,7 +5,7 @@ description: Admin-only router skill for users, groups, passwords, and account s
 
 Use this skill when the user asks to create or remove users, reset passwords, revoke sessions, manage groups, explain admin membership, or describe where account data is stored.
 
-This skill is shipped from `L0/_admin/...`, so if you can see it you are already in an admin-readable scope. Still confirm with `await space.api.userSelfInfo()` before making changes and make sure `isAdmin` is `true`.
+This skill is shipped from `L0/_admin/...`, so if you can see it you are already in an admin-readable scope. Still confirm with `await space.api.userSelfInfo()` before making changes and make sure `groups.includes("_admin")` is `true`.
 
 ## Load These Skills Next
 

@@ -1,24 +1,4 @@
-import * as config from "/mod/_core/onscreen_agent/config.js";
-import { buildMessageContentForApi } from "/mod/_core/onscreen_agent/attachments.js";
-import * as llmParams from "/mod/_core/onscreen_agent/llm-params.js";
-import * as proxyUrl from "/mod/_core/framework/js/proxy-url.js";
-
-function createHeaders(endpoint, apiKey) {
-  const headers = {
-    "Content-Type": "application/json"
-  };
-
-  if (apiKey) {
-    headers.Authorization = `Bearer ${apiKey}`;
-  }
-
-  if (endpoint.includes("openrouter.ai")) {
-    headers["HTTP-Referer"] = window.location.origin;
-    headers["X-Title"] = "Space Agent Onscreen";
-  }
-
-  return headers;
-}
+import { prepareOnscreenAgentCompletionRequest } from "/mod/_core/onscreen_agent/llm.js";
 
 function extractTextContent(value) {
   if (typeof value === "string") {
@@ -100,70 +80,6 @@ function finalizeCompletionResponseMeta(meta) {
     protocolObserved,
     verifiedEmpty: protocolObserved && meta.textChunkCount === 0
   };
-}
-
-function normalizeConversationMessage(message) {
-  if (!["user", "assistant"].includes(message?.role)) {
-    return null;
-  }
-
-  return {
-    attachments: Array.isArray(message?.attachments) ? message.attachments : [],
-    content: typeof message.content === "string" ? message.content : "",
-    role: message.role
-  };
-}
-
-export function buildOnscreenAgentPromptMessages(systemPrompt, messages) {
-  const requestMessages = [];
-  const effectiveSystemPrompt = typeof systemPrompt === "string" ? systemPrompt.trim() : "";
-
-  if (effectiveSystemPrompt) {
-    requestMessages.push({
-      role: "system",
-      content: effectiveSystemPrompt
-    });
-  }
-
-  messages.forEach((message) => {
-    const normalizedMessage = normalizeConversationMessage(message);
-
-    if (!normalizedMessage) {
-      return;
-    }
-
-    requestMessages.push({
-      role: normalizedMessage.role,
-      content: buildMessageContentForApi(normalizedMessage)
-    });
-  });
-
-  return requestMessages;
-}
-
-function createRequestBody(settings, systemPrompt, messages, options = {}) {
-  const requestMessages = Array.isArray(options.messages)
-    ? options.messages
-    : buildOnscreenAgentPromptMessages(systemPrompt, messages);
-
-  return {
-    ...llmParams.parseOnscreenAgentParamsText(settings.paramsText || ""),
-    model: settings.model || config.DEFAULT_ONSCREEN_AGENT_SETTINGS.model,
-    stream: true,
-    messages: requestMessages
-  };
-}
-
-function resolveChatRequestUrl(apiEndpoint) {
-  if (!proxyUrl.isProxyableExternalUrl(apiEndpoint)) {
-    return apiEndpoint;
-  }
-
-  if (window.space?.proxy?.buildUrl) {
-    return window.space.proxy.buildUrl(apiEndpoint);
-  }
-
-  return proxyUrl.buildProxyUrl(apiEndpoint);
 }
 
 async function throwResponseError(response) {
@@ -267,50 +183,46 @@ async function readStreamingResponse(response, onDelta) {
   }
 }
 
-export const prepareOnscreenAgentCompletionRequest = globalThis.space.extend(
-  import.meta,
-  async function prepareOnscreenAgentCompletionRequest({ settings, systemPrompt, messages }) {
-    const normalizedSettings =
-      settings && typeof settings === "object" ? settings : config.DEFAULT_ONSCREEN_AGENT_SETTINGS;
-    const requestMessages = buildOnscreenAgentPromptMessages(systemPrompt, messages);
-
-    return {
-      headers: createHeaders(normalizedSettings.apiEndpoint || "", String(normalizedSettings.apiKey || "").trim()),
-      messages: requestMessages,
-      requestBody: createRequestBody(normalizedSettings, systemPrompt, messages, {
-        messages: requestMessages
-      }),
-      requestUrl: resolveChatRequestUrl(normalizedSettings.apiEndpoint || ""),
-      settings: normalizedSettings,
-      systemPrompt
-    };
-  }
-);
-
 export const streamOnscreenAgentCompletion = globalThis.space.extend(
   import.meta,
-  async function streamOnscreenAgentCompletion({ settings, systemPrompt, messages, onDelta, signal }) {
-    if (!settings.apiEndpoint.trim()) {
+  async function streamOnscreenAgentCompletion({
+    messages,
+    onDelta,
+    preparedRequest,
+    promptInput,
+    settings,
+    signal,
+    systemPrompt
+  }) {
+    const effectiveRequest =
+      preparedRequest ||
+      (await prepareOnscreenAgentCompletionRequest({
+        messages,
+        promptInput,
+        settings,
+        systemPrompt
+      }));
+    const effectiveSettings =
+      effectiveRequest?.settings && typeof effectiveRequest.settings === "object"
+        ? effectiveRequest.settings
+        : settings;
+
+    if (!effectiveSettings?.apiEndpoint?.trim()) {
       throw new Error("Set an API endpoint before sending a message.");
     }
 
-    if (!settings.apiKey.trim()) {
+    if (!effectiveSettings.apiKey.trim()) {
       throw new Error("Set an API key before sending a message.");
     }
 
-    if (!settings.model.trim()) {
+    if (!effectiveSettings.model.trim()) {
       throw new Error("Set a model before sending a message.");
     }
 
-    const request = await prepareOnscreenAgentCompletionRequest({
-      messages,
-      settings,
-      systemPrompt
-    });
-    const response = await fetch(request.requestUrl, {
+    const response = await fetch(effectiveRequest.requestUrl, {
       method: "POST",
-      headers: request.headers,
-      body: JSON.stringify(request.requestBody),
+      headers: effectiveRequest.headers,
+      body: JSON.stringify(effectiveRequest.requestBody),
       signal
     });
 

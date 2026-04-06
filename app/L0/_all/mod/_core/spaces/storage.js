@@ -494,7 +494,7 @@ function formatWidgetRecordForRead(widgetRecord) {
   const rendererLines = getWidgetRendererReadLines(widgetRecord);
   return [
     ...buildWidgetMetadataLines(widgetRecord),
-    "renderer:",
+    "renderer↓",
     ...rendererLines.map((line, index) => `${index} ${line}`)
   ].join("\n");
 }
@@ -558,7 +558,7 @@ function normalizeWidgetPatchEdit(edit, lineCount) {
   };
 }
 
-function validateWidgetPatchEdits(edits = []) {
+function validateWidgetPatchEdits(edits = [], lineCount = 0) {
   const spans = edits
     .map((edit) =>
       edit.kind === "insert"
@@ -580,6 +580,16 @@ function validateWidgetPatchEdits(edits = []) {
       throw new Error(`Widget patch edits must not overlap. Conflicting edits: ${spans[index - 1].label} and ${spans[index].label}.`);
     }
   }
+
+  if (lineCount > 1) {
+    const rewritesWholeRenderer = edits.some(
+      (edit) => edit.kind === "replace" && edit.from === 0 && edit.to === lineCount - 1
+    );
+
+    if (rewritesWholeRenderer) {
+      throw new Error("patchWidget(...) is for partial renderer edits only; use renderWidget(...) for a full renderer rewrite.");
+    }
+  }
 }
 
 function applyWidgetPatchEdits(widgetRecord, edits = []) {
@@ -590,8 +600,10 @@ function applyWidgetPatchEdits(widgetRecord, edits = []) {
     return normalizeWidgetRecord(widgetRecord, widgetRecord).rendererSource;
   }
 
-  validateWidgetPatchEdits(normalizedEdits);
+  validateWidgetPatchEdits(normalizedEdits, sourceLines.length);
   const nextLines = [...sourceLines];
+  // Apply from bottom to top so every `from`/`to` range stays anchored to the
+  // last numbered widget readback, even when the same patch inserts or deletes lines.
   const descendingEdits = [...normalizedEdits].sort((left, right) => {
     const leftAnchor = left.kind === "insert" ? left.from - 0.5 : left.from;
     const rightAnchor = right.kind === "insert" ? right.from - 0.5 : right.from;
@@ -740,6 +752,54 @@ export function normalizeRendererSource(value, fallback = "") {
   return normalizedValue;
 }
 
+function tryCompileRendererMethodSource(rendererSource) {
+  const methodObject = Function(`return ({ ${rendererSource} });`)();
+
+  if (typeof methodObject?.renderer === "function") {
+    return methodObject.renderer;
+  }
+
+  const functionValues = Object.values(methodObject || {}).filter((value) => typeof value === "function");
+
+  if (functionValues.length === 1) {
+    return functionValues[0];
+  }
+
+  return null;
+}
+
+function validateWidgetRendererSourceForWrite(widgetRecord, actionLabel = "save") {
+  const normalizedWidget = normalizeWidgetRecord(widgetRecord, widgetRecord);
+  const rendererSource = normalizeRendererSource(normalizedWidget.rendererSource);
+  const widgetId = normalizedWidget.id;
+  let compiledRenderer = null;
+
+  try {
+    compiledRenderer = Function(`return (${rendererSource});`)();
+  } catch (directCompileError) {
+    try {
+      compiledRenderer = tryCompileRendererMethodSource(rendererSource);
+    } catch {
+      const message = String(directCompileError?.message || "Invalid renderer syntax.");
+      throw new Error(`Cannot ${actionLabel} widget "${widgetId}": renderer syntax is invalid (${message}). No files were written.`);
+    }
+
+    if (!compiledRenderer) {
+      const message = String(directCompileError?.message || "Invalid renderer syntax.");
+      throw new Error(`Cannot ${actionLabel} widget "${widgetId}": renderer syntax is invalid (${message}). No files were written.`);
+    }
+  }
+
+  if (typeof compiledRenderer !== "function") {
+    throw new Error(`Cannot ${actionLabel} widget "${widgetId}": renderer must evaluate to a function. No files were written.`);
+  }
+
+  return {
+    ...normalizedWidget,
+    rendererSource
+  };
+}
+
 function createDefaultRendererSource() {
   return [
     "(parent) => {",
@@ -879,6 +939,20 @@ async function createUniqueSpaceId(baseId) {
   }
 
   return nextId;
+}
+
+async function createNextUnnamedSpaceId() {
+  let suffix = 1;
+
+  while (true) {
+    const nextId = `space-${suffix}`;
+
+    if (!(await spaceExists(nextId))) {
+      return nextId;
+    }
+
+    suffix += 1;
+  }
 }
 
 async function listSpaceWidgetPaths(spaceId) {
@@ -1335,7 +1409,12 @@ export async function createSpace(options = {}) {
   const icon = normalizeSpaceIcon(options.icon);
   const iconColor = normalizeSpaceIconColor(options.iconColor);
   const title = normalizeSpaceTitle(options.title);
-  const id = await createUniqueSpaceId(options.id || title);
+  const requestedId = normalizeOptionalSpaceId(options.id);
+  const id = requestedId
+    ? await createUniqueSpaceId(requestedId)
+    : title
+      ? await createUniqueSpaceId(title)
+      : await createNextUnnamedSpaceId();
   const timestamp = new Date().toISOString();
   const manifest = normalizeManifest(
     {
@@ -1562,15 +1641,18 @@ export async function upsertWidget(options = {}) {
   const currentSpace = cloneSpaceRecord(await readSpace(spaceId));
   const widgetFallbackId = normalizeWidgetId(options.widgetId || options.id || options.name || options.title || "widget");
   const existingWidget = currentSpace.widgets[widgetFallbackId] || null;
-  const widgetRecord = previewWidgetRecord(options, {
-    ...existingWidget,
-    defaultPosition: existingWidget?.defaultPosition || DEFAULT_WIDGET_POSITION,
-    defaultSize: existingWidget?.defaultSize || DEFAULT_WIDGET_SIZE,
-    id: existingWidget?.id || widgetFallbackId,
-    name: options.name || options.title || existingWidget?.name || formatTitleFromId(widgetFallbackId),
-    path: buildSpaceWidgetFilePath(spaceId, widgetFallbackId),
-    rendererSource: existingWidget?.rendererSource || createDefaultRendererSource()
-  });
+  const widgetRecord = validateWidgetRendererSourceForWrite(
+    previewWidgetRecord(options, {
+      ...existingWidget,
+      defaultPosition: existingWidget?.defaultPosition || DEFAULT_WIDGET_POSITION,
+      defaultSize: existingWidget?.defaultSize || DEFAULT_WIDGET_SIZE,
+      id: existingWidget?.id || widgetFallbackId,
+      name: options.name || options.title || existingWidget?.name || formatTitleFromId(widgetFallbackId),
+      path: buildSpaceWidgetFilePath(spaceId, widgetFallbackId),
+      rendererSource: existingWidget?.rendererSource || createDefaultRendererSource()
+    }),
+    "save"
+  );
   const widgetId = widgetRecord.id;
   const nextSpace = cloneSpaceRecord(currentSpace);
   const hasExistingWidget = nextSpace.widgetIds.includes(widgetId);
@@ -1638,12 +1720,15 @@ export async function patchWidget(options = {}) {
   }
 
   const patchedRendererSource = applyWidgetPatchEdits(currentWidget, options.edits ?? options.lineEdits);
-  const nextWidget = applyPatchedWidgetAttributes(
-    {
-      ...currentWidget,
-      rendererSource: patchedRendererSource
-    },
-    options
+  const nextWidget = validateWidgetRendererSourceForWrite(
+    applyPatchedWidgetAttributes(
+      {
+        ...currentWidget,
+        rendererSource: patchedRendererSource
+      },
+      options
+    ),
+    "patch"
   );
   const nextSpace = cloneSpaceRecord(currentSpace);
   nextSpace.widgets[widgetId] = {

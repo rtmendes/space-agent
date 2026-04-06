@@ -49,12 +49,14 @@ Actions and forms:
 
 - `actions/buttons.css` owns shared `primary-button`, `secondary-button`, and `confirm-button` treatments plus composer-attachment chip styling
 - `forms/dialog.css` plus `forms/dialog.js` own the shared native `<dialog>` presentation and open or close helpers
+- modal-scoped button chrome belongs in `forms/dialog.css`, not in feature-local styles: dialogs should use the tighter admin-style geometry with compact 10px radii, no oversized pill buttons, transparent secondary actions, and flatter primary or confirm actions without the large shared button shadows
 
 Conversation and surfaces:
 
 - `conversation/thread-view.js` exports `createAgentThreadView(config)` and is the shared renderer used by the admin agent and onscreen agent
+- `conversation/thread-view.js` must patch streaming assistant rows in place when possible, including streamed execution cards, so expanded execution details stay interactive instead of losing DOM state on every delta; ordinary shared-thread rerenders must also reconcile against existing keyed rows instead of clearing and rebuilding the full history; completed execution rows must stay isolated from later assistant turns so a new streamed reply only updates the live row; thread scroll should keep following while the user remains near the bottom and should decouple only after the user has scrolled up; once an execution card is mounted, settled narration and other stable subtrees should not be recreated on each streamed token; and single-paragraph execution narration should collapse to one message block instead of keeping an extra markdown wrapper around a lone `<p>`
 - `conversation/thread-view.js` supports an opt-in chat-bubble markdown mode through `config.renderMarkdownWithMarked`; that mode routes settled non-streaming assistant and user bubbles through the shared framework markdown helper, escapes raw HTML before parsing, strips unsafe markdown link or image URLs after render, wraps rendered tables in `.message-markdown-table-wrap`, removes empty generated table headers, and lets the owning feature attach a local assistant markdown class through `config.assistantMarkdownClassName`
-- `conversation/agent-thread.css` owns the baseline bubble sizing and wrapping rules for shared threads; user bubbles must keep natural compact width for short drafts but still wrap long lines inside the bubble so chat scrollers do not widen or grow horizontal scrollbars
+- `conversation/agent-thread.css` owns the baseline bubble sizing and wrapping rules for shared threads; user bubbles must keep natural compact width for short drafts but still wrap long lines inside the bubble so chat scrollers do not widen or grow horizontal scrollbars, and execution narration should sit visually tight to its execution card instead of reading like a separate later reply; execute sections may use tighter local spacing than follow-up sections to preserve that coupling
 - `surfaces/cards.css` owns shared panel or card wrappers such as `space-panel`
 
 ## Visual System Rules

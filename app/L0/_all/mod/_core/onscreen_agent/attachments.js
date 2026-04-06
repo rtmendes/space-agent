@@ -195,7 +195,7 @@ export function buildMessageContentForApi(message) {
     : "These files are live in the browser runtime for this message.";
 
   const attachmentBlock = [
-    "Chat runtime access:",
+    "Chat runtime access↓",
     "The current thread is available in JavaScript as `space.chat`.",
     "Read current messages with `space.chat.messages`.",
     availabilityNote,
@@ -203,7 +203,7 @@ export function buildMessageContentForApi(message) {
       messageId +
       "\")`, or `space.chat.attachments.get(\"<attachment-id>\")`.",
     "Each attachment object exposes `id`, `messageId`, `name`, `type`, `size`, `lastModified`, `file`, and async methods `text()`, `json()`, `arrayBuffer()`, `dataUrl()`.",
-    "Attachments:",
+    "Attachments↓",
     ...buildAttachmentListLines(attachments)
   ].join("\n");
 

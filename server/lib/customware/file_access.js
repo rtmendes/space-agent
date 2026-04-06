@@ -195,78 +195,6 @@ function createReadableOwnerScopes(options = {}) {
   return ownerScopes;
 }
 
-function uniqueStrings(values = []) {
-  const output = [];
-  const seen = new Set();
-
-  for (const value of values) {
-    if (typeof value !== "string" || !value || seen.has(value)) {
-      continue;
-    }
-
-    seen.add(value);
-    output.push(value);
-  }
-
-  return output;
-}
-
-function createAppAccessScope(options = {}) {
-  const groupIndex = createRuntimeGroupIndex(
-    options.groupIndex || createEmptyGroupIndex(),
-    options.runtimeParams
-  );
-  const accessController = createAppAccessController({
-    groupIndex,
-    runtimeParams: options.runtimeParams,
-    username: options.username
-  });
-  const readableRoots = uniqueStrings(
-    createReadableOwnerScopes({
-      groupIndex,
-      runtimeParams: options.runtimeParams,
-      username: accessController.username
-    })
-      .map((ownerScope) => toAppRelativePath(ownerScope.rootPath))
-      .filter(Boolean)
-  );
-  const writableRoots = uniqueStrings([
-    ...[...accessController.managedGroups]
-      .filter(Boolean)
-      .sort((left, right) => left.localeCompare(right))
-      .map((groupId) => `L1/${groupId}/`),
-    accessController.username ? `L2/${accessController.username}/` : ""
-  ]);
-  const writableRootPatterns = accessController.isAdmin ? ["L1/<group>/", "L2/<user>/"] : [];
-  const readableModuleRoots = readableRoots.map((rootPath) => `${rootPath}mod/`);
-  const writableModuleRoots = writableRoots.map((rootPath) => `${rootPath}mod/`);
-
-  return {
-    backend: {
-      editable: false,
-      repoRoots: ["server", "commands", "packaging"]
-    },
-    frontend: {
-      editable: Boolean(accessController.isAdmin || writableModuleRoots.length > 0),
-      preferredWritableModuleRoots: uniqueStrings([
-        accessController.username ? `L2/${accessController.username}/mod/` : "",
-        ...writableRoots
-          .filter((rootPath) => rootPath.startsWith("L1/"))
-          .map((rootPath) => `${rootPath}mod/`)
-      ]),
-      readOnlyLayers: ["L0"],
-      readableModuleRoots,
-      readableRoots,
-      repoRoots: ["app"],
-      writableLayers: ["L1", "L2"],
-      writableModuleRootPatterns: writableRootPatterns.map((rootPath) => `${rootPath}mod/`),
-      writableModuleRoots,
-      writableRootPatterns,
-      writableRoots
-    }
-  };
-}
-
 function findOwnerScope(projectPath, ownerScopes) {
   return ownerScopes.find((ownerScope) => projectPath.startsWith(ownerScope.rootPath)) || null;
 }
@@ -1211,7 +1139,6 @@ export {
   copyAppPath,
   copyAppPaths,
   createAppAccessController,
-  createAppAccessScope,
   createHttpError,
   deleteAppPath,
   deleteAppPaths,

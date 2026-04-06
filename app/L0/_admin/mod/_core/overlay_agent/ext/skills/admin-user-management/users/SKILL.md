@@ -8,8 +8,8 @@ Use this skill for concrete user-account work.
 ## First Check
 
 - Call `const info = await space.api.userSelfInfo()`.
-- Confirm `info.isAdmin === true`.
-- Prefer the logical roots in `info.scope.frontend`, not guessed disk paths.
+- Confirm `info.groups.includes("_admin") === true`.
+- Prefer logical app paths derived from the standard layer rules, not guessed disk paths.
 
 ## Canonical User Tree
 

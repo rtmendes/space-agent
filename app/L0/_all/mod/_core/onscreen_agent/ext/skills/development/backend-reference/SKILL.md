@@ -35,7 +35,7 @@ These endpoints are thin wrappers over shared helpers in `server/lib/customware/
 
 `folder_download` supports `HEAD` for permission-only validation and `GET` or `POST` for the streamed ZIP attachment. It creates the archive in `server/tmp/` only for the actual download response, after the shared file-access layer approves the requested folder path.
 
-`user_self_info` is the frontend-facing identity and access-scope snapshot. It exposes the current user's readable and writable logical app roots without authorizing backend edits.
+`user_self_info` is the frontend-facing identity snapshot. Frontend callers derive writable app roots from `username`, `managedGroups`, and `_admin` membership in `groups` without authorizing backend edits.
 
 ## Module And Extension Resolution
 

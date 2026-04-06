@@ -84,13 +84,13 @@ Important rules:
 - app-file info
 - readable folder-download permission and path resolution for `folder_download`
 - pattern-based `file_paths` lookup
-- serialized frontend access-scope snapshots used by `user_self_info`
 
 Rules:
 
 - batch file operations must validate all targets before mutation begins
 - single-path app-file deletes must continue to work when request plumbing passes `paths: undefined`; only an explicit non-array `paths` value should be rejected as malformed batch input
 - keep permission, duplication, overlap, path-normalization, and logical-to-disk resolution logic centralized here
+- frontend callers should derive writable roots from the canonical permission rules and the `user_self_info` identity fields instead of depending on a serialized scope payload
 
 `module_manage.js` is the canonical entry point for:
 

@@ -48,14 +48,12 @@ When a UI needs user-visible download failure feedback without fetching the arch
 
 ## Identity Snapshot
 
-- `space.api.userSelfInfo()` returns `{ username, fullName, groups, managedGroups, isAdmin, scope }`.
-- `scope.frontend.repoRoots` identifies the frontend repo tree (`app`).
-- `scope.frontend.readableRoots` and `scope.frontend.readableModuleRoots` are the current readable logical app roots.
-- `scope.frontend.writableRoots` and `scope.frontend.writableModuleRoots` are the exact writable logical roots for the current user without relying on admin wildcards.
-- `scope.frontend.preferredWritableModuleRoots` lists the safest module roots to use first for new frontend work.
-- `scope.frontend.writableRootPatterns` and `scope.frontend.writableModuleRootPatterns` describe broader admin-only write scope such as `L1/<group>/` or `L2/<user>/mod/`.
-- `scope.frontend.readOnlyLayers` and `scope.frontend.writableLayers` make the `L0` versus `L1` or `L2` boundary explicit.
-- `scope.backend.repoRoots` names the backend-owned top-level trees, and `scope.backend.editable` is `false`; treat `server`, `commands`, and `packaging` as read-only from this frontend skill set.
+- `space.api.userSelfInfo()` returns `{ username, fullName, groups, managedGroups }`.
+- Treat `app/` as the frontend repo tree and `server`, `commands`, and `packaging` as read-only from this frontend skill set.
+- The current user may always write `L2/<username>/` and `L2/<username>/mod/`.
+- The current user may write `L1/<group>/` and `L1/<group>/mod/` for each entry in `managedGroups`.
+- If `groups` includes `_admin`, the user may write any `L1/<group>/...` or `L2/<user>/...` path except `L0`, which remains firmware-only.
+- Readable group roots still follow group membership and layer rules; use `development/layers-ownership` when you need the full read-resolution model.
 
 ## Boundary Rule
 

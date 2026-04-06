@@ -14,6 +14,8 @@
             'is-compact': $store.onscreenAgent.isCompactMode,
             'is-full': $store.onscreenAgent.isFullMode,
             'is-history-below': $store.onscreenAgent.isHistoryBelow,
+            'is-mode-collapsing': $store.onscreenAgent.isModeTransitionCollapsing,
+            'is-mode-expanding': $store.onscreenAgent.isModeTransitionExpanding,
             'is-right': $store.onscreenAgent.isDockedRight
           }"
           x-ref="shell"
@@ -21,7 +23,7 @@
           :style="$store.onscreenAgent.positionStyle"
           @dragend.window="$store.onscreenAgent.resetAttachmentDragState()"
           @drop.window="$store.onscreenAgent.resetAttachmentDragState()"
-          x-init="$nextTick(() => $store.onscreenAgent.mount({ actionMenu: $refs.actionMenu, avatar: $refs.avatar, attachmentInput: $refs.attachmentInput, historyDialog: $refs.historyDialog, input: $refs.input, panel: $refs.panel, rawDialog: $refs.rawDialog, scroller: $refs.scroller, settingsDialog: $refs.settingsDialog, shell: $refs.shell, thread: $refs.thread, uiBubbleContent: $refs.uiBubbleContent }))"
+          x-init="$nextTick(() => $store.onscreenAgent.mount({ actionMenu: $refs.actionMenu, avatar: $refs.avatar, attachmentInput: $refs.attachmentInput, historyDialog: $refs.historyDialog, input: $refs.input, panel: $refs.panel, rawDialog: $refs.rawDialog, scroller: $refs.scroller, settingsDialog: $refs.settingsDialog, shell: $refs.shell, uiBubbleContent: $refs.uiBubbleContent }))"
           x-destroy="$store.onscreenAgent.unmount()"
         >
           <div class="onscreen-agent-cluster">
@@ -71,8 +73,7 @@
                   :style="$store.onscreenAgent.historyStyle"
                   x-ref="historyShell"
                   x-show="$store.onscreenAgent.shouldShowHistory"
-                  x-transition.opacity.duration.120ms
-                  x-init="$nextTick(() => $store.onscreenAgent.mountHistory({ historyShell: $refs.historyShell, scroller: $refs.scroller, thread: $refs.thread }))"
+                  x-init="$nextTick(() => $store.onscreenAgent.mountHistory({ historyShell: $refs.historyShell, scroller: $refs.scroller }))"
                   x-destroy="$store.onscreenAgent.unmountHistory()"
                 >
                   <div
@@ -80,8 +81,8 @@
                     title="Resize chat history"
                     @pointerdown="$store.onscreenAgent.handleHistoryResizePointerDown($event)"
                   ></div>
-                  <div class="onscreen-agent-history" x-ref="scroller">
-                    <div class="chat-thread" x-ref="thread" data-chat-thread @click="$store.onscreenAgent.handleThreadClick($event)"></div>
+                  <div class="onscreen-agent-history" x-ref="scroller" @click="$store.onscreenAgent.handleThreadClick($event)">
+                    <div class="chat-thread" x-ignore data-chat-thread></div>
                   </div>
                 </div>
               </template>
@@ -405,14 +406,18 @@
                       </div>
                     </div>
                   </header>
-                  <div class="raw-output-frame">
+                  <div class="raw-output-frame" data-prompt-history-frame>
                     <template x-if="$store.onscreenAgent.promptHistoryMode === 'text'">
                       <div class="prompt-history-list">
                         <template x-if="!$store.onscreenAgent.promptHistorySections.length">
                           <pre class="raw-output"></pre>
                         </template>
                         <template x-for="(section, index) in $store.onscreenAgent.promptHistorySections" :key="`${section.role}-${index}`">
-                          <section class="prompt-history-section">
+                          <section
+                            class="prompt-history-section"
+                            :class="{ 'is-target': section.isTarget }"
+                            :data-prompt-history-message-index="section.messageIndex"
+                          >
                             <div class="prompt-history-role" x-text="`${section.role} (${section.tokenCountLabel}):`"></div>
                             <pre class="prompt-history-body" x-text="section.content"></pre>
                           </section>
@@ -420,20 +425,167 @@
                       </div>
                     </template>
                     <template x-if="$store.onscreenAgent.promptHistoryMode === 'json'">
-                      <pre class="raw-output" x-text="$store.onscreenAgent.promptHistoryContent || '[]'"></pre>
+                      <pre
+                        class="raw-output"
+                        data-prompt-history-json-output
+                        x-text="$store.onscreenAgent.promptHistoryContent || '[]'"
+                      ></pre>
                     </template>
                   </div>
-                  <div class="dialog-actions prompt-history-dialog-actions">
-                    <button
-                      type="button"
-                      class="secondary-button dialog-icon-button"
-                      title="Copy prompt history"
-                      aria-label="Copy prompt history"
-                      @click="$store.onscreenAgent.copyPromptHistory()"
+                  <div
+                    class="prompt-history-actions"
+                    style="
+                      --prompt-history-action-width: 5.8rem;
+                      display: flex;
+                      align-items: center;
+                      justify-content: space-between;
+                      gap: 1rem;
+                      width: 100%;
+                      margin-top: 1rem;
+                      flex-wrap: nowrap;
+                    "
+                  >
+                    <div
+                      class="prompt-history-actions-left"
+                      style="display: flex; align-items: center; gap: 0.45rem; flex-wrap: nowrap;"
                     >
-                      <x-icon>content_copy</x-icon>
-                    </button>
-                    <button type="button" class="secondary-button" @click="$store.onscreenAgent.closePromptHistoryDialog()">Close</button>
+                      <button
+                        type="button"
+                        class="secondary-button prompt-history-action-button"
+                        style="
+                          box-sizing: border-box;
+                          width: var(--prompt-history-action-width);
+                          min-width: var(--prompt-history-action-width);
+                          justify-content: center;
+                          gap: 0.32rem;
+                          padding-inline: 0.55rem;
+                          white-space: nowrap;
+                        "
+                        title="Jump to first real user message"
+                        aria-label="Jump to first real user message"
+                        :disabled="!$store.onscreenAgent.hasPromptHistoryUserMessages"
+                        @click="$store.onscreenAgent.jumpToFirstPromptHistoryUserMessage()"
+                      >
+                        <x-icon>person</x-icon>
+                        <span>1st</span>
+                      </button>
+                      <button
+                        type="button"
+                        class="secondary-button prompt-history-action-button"
+                        style="
+                          box-sizing: border-box;
+                          width: var(--prompt-history-action-width);
+                          min-width: var(--prompt-history-action-width);
+                          justify-content: center;
+                          gap: 0.32rem;
+                          padding-inline: 0.55rem;
+                          white-space: nowrap;
+                        "
+                        title="Jump to previous real user message"
+                        aria-label="Jump to previous real user message"
+                        :disabled="!$store.onscreenAgent.canJumpToPreviousPromptHistoryUserMessage"
+                        @click="$store.onscreenAgent.jumpToPreviousPromptHistoryUserMessage()"
+                      >
+                        <x-icon>keyboard_arrow_up</x-icon>
+                      </button>
+                      <button
+                        type="button"
+                        class="secondary-button prompt-history-action-button"
+                        style="
+                          box-sizing: border-box;
+                          width: var(--prompt-history-action-width);
+                          min-width: var(--prompt-history-action-width);
+                          justify-content: center;
+                          gap: 0.32rem;
+                          padding-inline: 0.55rem;
+                          white-space: nowrap;
+                        "
+                        title="Jump to next real user message"
+                        aria-label="Jump to next real user message"
+                        :disabled="!$store.onscreenAgent.canJumpToNextPromptHistoryUserMessage"
+                        @click="$store.onscreenAgent.jumpToNextPromptHistoryUserMessage()"
+                      >
+                        <x-icon>keyboard_arrow_down</x-icon>
+                      </button>
+                    </div>
+                    <div
+                      class="prompt-history-actions-right"
+                      style="display: flex; align-items: center; gap: 0.45rem; flex-wrap: nowrap; margin-left: auto;"
+                    >
+                      <button
+                        type="button"
+                        class="secondary-button prompt-history-action-button"
+                        style="
+                          box-sizing: border-box;
+                          width: var(--prompt-history-action-width);
+                          min-width: var(--prompt-history-action-width);
+                          justify-content: center;
+                          gap: 0.32rem;
+                          padding-inline: 0.55rem;
+                          white-space: nowrap;
+                        "
+                        title="Copy system prompt"
+                        aria-label="Copy system prompt"
+                        @click="$store.onscreenAgent.copyPromptHistorySystemPrompt()"
+                      >
+                        <x-icon>content_copy</x-icon>
+                        <span>System</span>
+                      </button>
+                      <button
+                        type="button"
+                        class="secondary-button prompt-history-action-button"
+                        style="
+                          box-sizing: border-box;
+                          width: var(--prompt-history-action-width);
+                          min-width: var(--prompt-history-action-width);
+                          justify-content: center;
+                          gap: 0.32rem;
+                          padding-inline: 0.55rem;
+                          white-space: nowrap;
+                        "
+                        title="Copy history"
+                        aria-label="Copy history"
+                        @click="$store.onscreenAgent.copyPromptHistoryHistory()"
+                      >
+                        <x-icon>content_copy</x-icon>
+                        <span>History</span>
+                      </button>
+                      <button
+                        type="button"
+                        class="secondary-button prompt-history-action-button"
+                        style="
+                          box-sizing: border-box;
+                          width: var(--prompt-history-action-width);
+                          min-width: var(--prompt-history-action-width);
+                          justify-content: center;
+                          gap: 0.32rem;
+                          padding-inline: 0.55rem;
+                          white-space: nowrap;
+                        "
+                        title="Copy all"
+                        aria-label="Copy all"
+                        @click="$store.onscreenAgent.copyPromptHistoryAll()"
+                      >
+                        <x-icon>content_copy</x-icon>
+                        <span>All</span>
+                      </button>
+                      <button
+                        type="button"
+                        class="secondary-button prompt-history-action-button"
+                        style="
+                          box-sizing: border-box;
+                          width: var(--prompt-history-action-width);
+                          min-width: var(--prompt-history-action-width);
+                          justify-content: center;
+                          gap: 0.32rem;
+                          padding-inline: 0.55rem;
+                          white-space: nowrap;
+                        "
+                        @click="$store.onscreenAgent.closePromptHistoryDialog()"
+                      >
+                        <span>Close</span>
+                      </button>
+                    </div>
                   </div>
                 </div>
               </dialog>

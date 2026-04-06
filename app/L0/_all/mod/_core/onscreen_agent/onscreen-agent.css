@@ -7,6 +7,8 @@
   --onscreen-agent-avatar-size: 72px;
   --onscreen-agent-compact-panel-width: min(22rem, calc(100vw - 132px));
   --onscreen-agent-gap: 12px;
+  --onscreen-agent-mode-transition-duration: 260ms;
+  --onscreen-agent-mode-transition-ease: cubic-bezier(0.2, 0.9, 0.25, 1);
   --onscreen-agent-panel-width: min(34rem, calc(100vw - 132px));
   --onscreen-agent-side-shift-duration: 280ms;
   --onscreen-agent-side-shift-ease: cubic-bezier(0.22, 1, 0.36, 1);
@@ -108,11 +110,12 @@
   -webkit-backdrop-filter: blur(20px) saturate(1.08);
   overflow: visible;
   pointer-events: auto;
+  transform-origin: center bottom;
   transform: translate3d(0, calc(-100% - var(--onscreen-agent-history-offset)), 0);
   transition:
     top var(--onscreen-agent-side-shift-duration) var(--onscreen-agent-side-shift-ease),
     transform var(--onscreen-agent-side-shift-duration) var(--onscreen-agent-side-shift-ease);
-  will-change: transform;
+  will-change: opacity, transform;
 }
 
 .onscreen-agent-history {
@@ -170,7 +173,18 @@
 
 .onscreen-agent-shell.is-history-below .onscreen-agent-history-shell {
   top: 100%;
+  transform-origin: center top;
   transform: translate3d(0, var(--onscreen-agent-history-offset), 0);
+}
+
+.onscreen-agent-shell.is-mode-expanding:not(.is-history-below) .onscreen-agent-history-shell {
+  animation: onscreen-agent-history-expand-above var(--onscreen-agent-mode-transition-duration)
+    var(--onscreen-agent-mode-transition-ease) both;
+}
+
+.onscreen-agent-shell.is-mode-expanding.is-history-below .onscreen-agent-history-shell {
+  animation: onscreen-agent-history-expand-below var(--onscreen-agent-mode-transition-duration)
+    var(--onscreen-agent-mode-transition-ease) both;
 }
 
 .onscreen-agent-cluster {
@@ -458,8 +472,10 @@
     var(--onscreen-agent-body-shift-y),
     0
   );
-  transition: transform var(--onscreen-agent-side-shift-duration) var(--onscreen-agent-side-shift-ease);
-  will-change: transform;
+  transition:
+    transform var(--onscreen-agent-side-shift-duration) var(--onscreen-agent-side-shift-ease),
+    width var(--onscreen-agent-mode-transition-duration) var(--onscreen-agent-mode-transition-ease);
+  will-change: transform, width;
 }
 
 .onscreen-agent-shell.is-right .onscreen-agent-body {
@@ -481,10 +497,28 @@
   box-shadow: var(--onscreen-agent-panel-shadow);
   backdrop-filter: blur(18px) saturate(1.08);
   -webkit-backdrop-filter: blur(18px) saturate(1.08);
+  transform-origin: left bottom;
   transition:
+    border-radius var(--onscreen-agent-mode-transition-duration) var(--onscreen-agent-mode-transition-ease),
     border-color 140ms ease,
     background-color 140ms ease,
-    box-shadow 140ms ease;
+    box-shadow 140ms ease,
+    gap var(--onscreen-agent-mode-transition-duration) var(--onscreen-agent-mode-transition-ease),
+    padding var(--onscreen-agent-mode-transition-duration) var(--onscreen-agent-mode-transition-ease);
+}
+
+.onscreen-agent-shell.is-right .onscreen-agent-panel {
+  transform-origin: right bottom;
+}
+
+.onscreen-agent-shell.is-mode-expanding .onscreen-agent-panel {
+  animation: onscreen-agent-panel-expand var(--onscreen-agent-mode-transition-duration)
+    var(--onscreen-agent-mode-transition-ease) both;
+}
+
+.onscreen-agent-shell.is-mode-collapsing .onscreen-agent-panel {
+  animation: onscreen-agent-panel-collapse var(--onscreen-agent-mode-transition-duration)
+    var(--onscreen-agent-mode-transition-ease) both;
 }
 
 .onscreen-agent-panel {
@@ -750,17 +784,33 @@
   color: var(--color-text-primary);
 }
 
-.onscreen-agent-root .secondary-button,
-.onscreen-agent-root .primary-button,
-.onscreen-agent-root .confirm-button,
-.onscreen-agent-root .execution-detail-button {
+.onscreen-agent-root .onscreen-agent-composer .secondary-button,
+.onscreen-agent-root .onscreen-agent-composer .primary-button,
+.onscreen-agent-root .onscreen-agent-composer .confirm-button,
+.onscreen-agent-root .onscreen-agent-composer .execution-detail-button {
   min-height: 2rem;
   padding: 0.42rem 0.72rem;
 }
 
-.onscreen-agent-root .dialog-icon-button {
+.onscreen-agent-root .onscreen-agent-composer .dialog-icon-button {
   min-width: 2.2rem;
   padding-inline: 0.62rem;
+}
+
+.onscreen-agent-root .prompt-history-json-list,
+.onscreen-agent-root .prompt-history-list {
+  min-width: 100%;
+}
+
+.onscreen-agent-root .prompt-history-section {
+  scroll-margin-block: 1rem;
+}
+
+.onscreen-agent-root .prompt-history-section.is-target {
+  background:
+    linear-gradient(180deg, rgba(148, 188, 255, 0.12), rgba(148, 188, 255, 0.04)),
+    rgba(18, 29, 51, 0.78);
+  box-shadow: inset 0 0 0 1px rgba(148, 188, 255, 0.2);
 }
 
 .onscreen-agent-root .chat-thread.is-empty {
@@ -794,6 +844,13 @@
   .onscreen-agent-shell {
     animation: none;
   }
+
+  .onscreen-agent-history-shell,
+  .onscreen-agent-body,
+  .onscreen-agent-panel {
+    animation: none;
+    transition: none;
+  }
 }
 
 .onscreen-agent-action-menu .space-popover-action:disabled:hover,
@@ -806,6 +863,54 @@
 
 .onscreen-agent-popover-layer {
   z-index: 2147483000;
+}
+
+@keyframes onscreen-agent-history-expand-above {
+  from {
+    opacity: 0;
+    transform: translate3d(0, calc(-100% - var(--onscreen-agent-history-offset) + 24px), 0) scale(0.985);
+  }
+
+  to {
+    opacity: 1;
+    transform: translate3d(0, calc(-100% - var(--onscreen-agent-history-offset)), 0) scale(1);
+  }
+}
+
+@keyframes onscreen-agent-history-expand-below {
+  from {
+    opacity: 0;
+    transform: translate3d(0, calc(var(--onscreen-agent-history-offset) - 24px), 0) scale(0.985);
+  }
+
+  to {
+    opacity: 1;
+    transform: translate3d(0, var(--onscreen-agent-history-offset), 0) scale(1);
+  }
+}
+
+@keyframes onscreen-agent-panel-expand {
+  from {
+    opacity: 0.88;
+    transform: translate3d(0, 12px, 0) scale(0.968);
+  }
+
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+}
+
+@keyframes onscreen-agent-panel-collapse {
+  from {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+
+  to {
+    opacity: 0.96;
+    transform: translate3d(0, 8px, 0) scale(0.982);
+  }
 }
 
 @keyframes onscreen-agent-avatar-float {

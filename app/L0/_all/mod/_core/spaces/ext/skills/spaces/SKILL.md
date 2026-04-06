@@ -1,119 +1,140 @@
 ---
 name: Spaces Widgets
-description: Create or update persisted space widgets through `space.current.renderWidget(...)` and the `_core/spaces` layout helpers.
+description: Create, patch, move, and remove widgets
 metadata:
   always_loaded: true
 ---
 
-Use this skill when the user asks the agent to create, update, patch, rearrange, or remove widgets inside a space.
+Use this skill for widget work in a space
 
-## Storage Layout
+storage
+- ~/spaces/<spaceId>/space.yaml = space meta + live layout
+- ~/spaces/<spaceId>/widgets/<widgetId>.yaml = widget meta + renderer
+- ~/spaces/<spaceId>/data/ and assets/ = widget-owned files
 
-- Spaces live under `~/spaces/<spaceId>/`.
-- The manifest is `~/spaces/<spaceId>/space.yaml`.
-- Widget files live under `~/spaces/<spaceId>/widgets/<widgetId>.yaml`.
-- Widget-owned support files can live under `~/spaces/<spaceId>/data/` or `~/spaces/<spaceId>/assets/`.
-- `space.yaml` stores space metadata plus the live layout.
-- Each widget YAML file stores the widget metadata and the renderer code together in one file.
+main helpers
+Current space:
+- listWidgets()
+- readWidget(id)
+- patchWidget(id, { name?, cols?, rows?, col?, row?, edits? })
+- renderWidget({ id, name, cols, rows, renderer })
+- reloadWidget(id)
+- removeWidget(...), removeWidgets(...), removeAllWidgets()
+- rearrangeWidgets(...), toggleWidgets(...), repairLayout(), rearrange(), reload()
 
-## Prefer The Runtime Helpers
+Cross-space:
+- listSpaces(), createSpace({ title }), openSpace(id), removeSpace(id)
+- upsertWidget(...), patchWidget(...), removeWidgets(...), removeAllWidgets(...)
 
-The spaces module exposes `space.current` for the open space and `space.spaces` for broader CRUD.
+catalog and readback
+- Prefer space.current.* when already inside a space
+- Use listWidgets() when you need the live catalog. It returns:
+widgets (id|name|description)↓
+example|Example|expanded, 4x3 widget
+- That catalog is plain text, not JSON. Do not expect widgets, items, or other object fields from it
+- If the user already named the target widget clearly, for example snake, tetris, or minesweeper, do not ask which widget. Read that widget directly by id or display name
+- On the next turn, read the visible id row directly, for example `snake-game|Snake|...` means use `readWidget("snake-game")`
+- Use that id for readWidget(), patchWidget(), and reloadWidget(). Name is fallback only
+- readWidget() returns a short status and loads Current Widget into _____transient
+- Current Widget format↓
+id: example
+name: Example
+cols: 4
+rows: 3
+renderer↓
+0 async (parent, currentSpace) => {
+1   console.log("hello");
+2 }
+- Patch numbers come only from numbered renderer lines after renderer↓
+- Do not copy displayed line numbers into patch content
+- In prepared input, optional example turns may appear before live history, _____user = human, _____framework = runtime output, and _____transient = trailing Current Widget context
 
-Useful helpers:
+staged turns
+- listWidgets() and readWidget() are discovery calls. If the next step depends on them, end the execution there
+- If _____framework already showed the widget id you need, skip another discovery call and move to the next step
+- After readWidget(), patch on the next turn, not in the same JS block
+- After patchWidget(), renderWidget(), or reloadWidget(), use the refreshed Current Widget on the next turn if another edit is needed
+- Start every execution block with one short sentence saying the immediate step
+- Put that sentence on its own line. Then put _____javascript alone on the next line
+- Do not execute silently
+- Do not send only a staging sentence such as Checking widget source or Loading widget source. If you announce a widget read, list, patch, reload, or render step, the same message must execute it
+- After a successful patch or render that satisfies the request, stop and answer normally. Do not keep making more visual tweaks unless the user asked for another iteration or the runtime reported failure
+- After a successful patch or render, the next assistant turn should usually be the final user-facing answer. Do not output another promise line such as Updating... or Applying... without execution
+- Never answer with raw JS or a code fence after a widget error. Either send a proper execution message or a normal user-facing answer
 
-- `await space.current.readWidget("widget-id-or-name")`
-- `await space.current.patchWidget("widget-id", { name?, cols?, rows?, col?, row?, edits? })`
-- `space.current.renderWidget({ id, name, cols, rows, renderer })`
-- `space.current.removeWidget(widgetId)`
-- `space.current.removeWidgets(["widget-id", ...])`
-- `space.current.removeAllWidgets()`
-- `await space.current.reload()`
-- `await space.current.repairLayout()`
-- `await space.current.rearrange()`
-- `await space.current.rearrangeWidgets([{ id, col?, row?, cols?, rows? }, ...])`
-- `await space.current.toggleWidgets(["widget-id", ...])`
-- `space.current.widgets`
-- `space.current.byId`
-- `await space.spaces.listSpaces()`
-- `await space.spaces.createSpace({ title })`
-- `await space.spaces.removeSpace(spaceId)`
-- `await space.spaces.openSpace(spaceId)`
-- `await space.spaces.rearrangeWidgets({ spaceId?, widgets })`
-- `await space.spaces.saveSpaceMeta({ id, title })`
-- `await space.spaces.saveSpaceLayout({ id, widgetIds?, widgetPositions?, widgetSizes?, minimizedWidgetIds? })`
-- `await space.spaces.toggleWidgets({ spaceId?, widgetIds })`
-- `await space.spaces.upsertWidget({ spaceId?, widgetId?, name?, cols?, rows?, renderer?, source? })`
-- `await space.spaces.patchWidget({ spaceId?, widgetId, name?, cols?, rows?, col?, row?, edits? })`
-- `await space.spaces.removeWidgets({ spaceId?, widgetIds })`
-- `await space.spaces.removeAllWidgets(spaceId? | { spaceId? })`
-- `space.utils.markdown.render(text, target)`
-- `space.spaces.items`
-- `space.spaces.byId`
-- `space.spaces.createWidgetSource({ id, name, cols, rows, renderer })`
+examples
+Checking widget catalog
+_____javascript
+return await space.current.listWidgets()
 
-If the user is already inside a space, prefer `space.current.*`. Freshly created spaces are empty canvases, so write the first widget yourself instead of expecting starter content.
-While a space is open, the onscreen system prompt also injects the live `space.current.widgets` snapshot; those widget entries include `state`, `position`, logical `size`, and `renderedSize`.
-`space.current.readWidget(...)` resolves current-space widgets by id or displayed name and returns compact plain text with plain metadata lines first, then `renderer:`, then the dedented renderer lines numbered from `0`.
-Use those zero-based renderer line numbers for later `patchWidget(...)` edits. Metadata lines are descriptive context, not patch line targets.
+Loading the widget source into transient
+_____javascript
+return await space.current.readWidget("tetris-game")
 
-## Widget Authoring Contract
+After the catalog already showed snake-game, loading Snake source
+_____javascript
+return await space.current.readWidget("snake-game")
 
-Preferred shape:
+User asked for the snake widget, loading it directly
+_____javascript
+return await space.current.readWidget("snake")
 
-```js
-return await space.current.renderWidget({
-  id: "hello",
-  name: "Hello",
-  cols: 6,
-  rows: 3,
-  renderer: async (parent, currentSpace) => {
-    currentSpace.utils.markdown.render(
-      [
-        "### Hello widget",
-        "",
-        "Rendered directly from one YAML file."
-      ].join("\\n"),
-      parent
-    );
-  }
-})
-```
+bad
+Checking the current widget source
 
-Rules:
+bad
+_____javascript
+return await space.current.readWidget("snake-game")
 
-- When the user asks to patch, tweak, fix, or slightly modify an existing widget, default to `readWidget(...)` plus `patchWidget(...)`. Treat `renderWidget(...)` as the fallback for new widgets or deliberate full rewrites.
-- Before rewriting an existing widget, prefer `return await space.current.readWidget("widget-id-or-name")` so you inspect the current YAML-backed definition instead of guessing from the live layout snapshot alone.
-- Do not read widget YAML directly through `space.api.fileRead(...)` when `space.current.readWidget(...)` or `space.spaces.readWidget(...)` can give you the numbered source instead.
-- Prefer `return await space.current.patchWidget("widget-id", { edits: [...] })` for small targeted changes to an existing renderer, and `return await space.current.renderWidget(...)` for new widgets or full rewrites.
-- `readWidget(...)` returns widget metadata first and then renderer lines numbered from `0`, for example `0 async (parent, currentSpace) => {`.
-- `patchWidget(...)` only edits those numbered renderer lines. Use the explicit `name`, `cols`, `rows`, `col`, or `row` inputs for metadata changes.
-- `patchWidget(...)` line edits follow the current numbered renderer output. Use `edits: [{ from, to?, content? }]` with raw replacement text that does not include line numbers.
-- In `patchWidget(...)`, `from` and `to` are inclusive zero-based renderer line numbers. Omit `to` to insert before `from`. Omit `content` on a ranged edit to delete. Do not overlap edits, and do not renumber later edits after inserts, deletes, or length-changing replacements.
-- In patch content, replace only the exact changed lines, do not include surrounding unchanged lines, and keep brackets or tags or function blocks syntactically complete.
-- When authoring or rewriting a renderer, prefer `async (parent, currentSpace) => { ... }` so the global `space` runtime remains available by name inside the widget code.
-- After any `return await space.current.renderWidget(...)` or `return await space.current.patchWidget(...)`, inspect the returned `widgetText` field before issuing another patch. Re-read after insertions, deletions, or multiline replacements so later line numbers stay correct.
-- Widget size is capped at `24` columns by `24` rows. Do not ask for or persist anything larger than `24x24`.
-- Choose a reasonable widget size based on the actual content instead of defaulting to oversized cards. One grid cell is roughly `85px` square, which is about `5.3rem` at a `16px` root font size, so pick sensible column and row counts and a reasonable aspect ratio for the UI you are rendering.
-- Render into `parent`; it is the framework-owned net content box for the widget and excludes the title bar chrome. For markdown-heavy output, prefer `space.utils.markdown.render(markdownText, parent)`.
-- Prefer the batch helpers over manual `saveSpaceLayout(...)` map surgery when the task is to move, minimize, restore, or delete several widgets.
-- Widget content should adapt to the chosen card size and continue to behave correctly when the user resizes the widget later. Avoid layouts that only work at one exact size; prefer flexible wrapping, internal scrolling where appropriate, and sizing that follows the framework-provided render target instead of hard-coded viewport assumptions.
-- If you attach listeners, timers, or other long-lived effects, return a cleanup function from `renderer(...)`.
-- Do not patch unrelated global page DOM from widgets. Keep effects scoped to the widget unless there is an explicit user request.
-- Do not capture plain unmodified keys from `window`, `document`, or other global listeners in ways that block typing into chat. If a widget needs keyboard input, require focus on the widget itself, or use modified shortcuts such as `Ctrl` or `Cmd` combinations instead of plain keys like letters, `Space`, or bare `Enter`.
+bad
+Which widget should I change?
 
-## Recommended Agent Flow
+bad
+const widgets = await space.current.listWidgets();
+const snake = widgets.widgets.find(...)
 
-1. Inspect or create the target space with `space.current` or `space.spaces`, read `space.current.widgets` for the live layout snapshot, and call `await space.current.readWidget("widget-id-or-name")` for any existing widget you plan to change.
-2. If the task is a modification to an existing widget, patch it with `space.current.patchWidget(...)`. Use `space.current.renderWidget(...)` only for new widgets or deliberate full rewrites.
-3. Use `await space.current.rearrangeWidgets(...)`, `await space.current.toggleWidgets(...)`, `await space.current.removeWidgets(...)`, or `await space.current.removeAllWidgets()` for batch layout or state changes.
-4. Call `await space.current.repairLayout()` after bulk edits or if layout collisions are possible.
-5. Call `await space.current.rearrange()` only when the user explicitly wants the built-in packed centered recovery layout.
-6. Call `await space.current.reload()` only when you need to force a fresh replay.
+bad
+return await space.current.patchWidget("snake-game", ...)
+// success came back
+return await space.current.patchWidget("snake-game", ...)
 
-## Persistence Rule
+bad
+Updating the snake widget background now
+Applying the color edits now
 
-- Rewrite widgets by widget id instead of trying to patch previous DOM output.
-- The manifest controls live order, live positions, live sizes, and minimized state.
-- Widget YAML files control widget identity, default size, optional default position, and renderer code.
-- Positions use a centered logical grid where `0,0` is the canvas origin and negative coordinates are valid.
+patch vs rewrite
+- Use patchWidget() for bounded edits to an existing renderer
+- Use renderWidget() for new widgets or full rewrites
+- patchWidget() is not a whole-renderer rewrite API. Do not use broad guesses like 0-999
+- Use name, cols, rows, col, row for metadata changes. Use edits only for renderer lines
+- edits use raw JS only: [{ from, to?, content? }]
+- from and to are inclusive zero-based renderer line numbers
+- Omit to to insert before from
+- Omit content on a ranged edit to delete
+- Do not overlap edits
+- The runtime applies edits from higher line numbers down to lower ones
+- If you build edits programmatically, parse the numbered renderer lines. Do not use widget.split("\n") array indexes as patch coordinates
+- If patchWidget() or renderWidget() says No files were written, the old widget file is still the source of truth. Fix and retry
+
+write and reload behavior
+- readWidget(), patchWidget(), renderWidget(), and reloadWidget() return short status strings only
+- They also emit plain-text console status
+- Do not parse those status strings. The execution output is enough
+- If a write or reload reports a render failure, keep fixing the widget from Current Widget before claiming success
+- Use reloadWidget(id) when you want an explicit rerun without changing source
+
+renderer rules
+- Prefer async (parent, currentSpace) => { ... }
+- Render into parent
+- For markdown-heavy output, use space.utils.markdown.render(text, parent)
+- Max widget size is 24x24
+- Pick a reasonable size. Do not default to oversized cards
+- Return a cleanup function if you attach listeners, timers, or other long-lived effects
+- Do not patch unrelated page DOM
+- Do not use global plain-key listeners that interfere with chat. Require widget focus or use modified shortcuts
+
+flow
+1. listWidgets() if you need the live catalog
+2. readWidget(id) for any existing widget you will change
+3. Next turn: patchWidget(id, ...) or renderWidget(...)
+4. Next turn if needed: use the refreshed Current Widget, then continue

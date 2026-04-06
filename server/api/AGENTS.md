@@ -82,7 +82,7 @@ Important notes:
 
 - `extensions_load` resolves HTML or JS extension request paths through the shared layered override system and supports grouped request batches
 - frontend HTML anchors and JS hooks currently resolve through `ext/html/...` and `ext/js/...` request paths respectively
-- `user_self_info` returns the authenticated user's derived identity plus a serialized frontend access-scope snapshot from the shared app-file permission model
+- `user_self_info` returns the authenticated user's derived identity only: `{ username, fullName, groups, managedGroups }`
 - `password_generate` is an authenticated utility endpoint that returns the backend-sealed `password.json` payload and should stay narrow
 
 ## Handler Contract

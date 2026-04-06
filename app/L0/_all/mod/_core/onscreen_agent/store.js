@@ -1,8 +1,8 @@
 import * as config from "/mod/_core/onscreen_agent/config.js";
 import * as agentApi from "/mod/_core/onscreen_agent/api.js";
 import * as execution from "/mod/_core/onscreen_agent/execution.js";
+import * as agentLlm from "/mod/_core/onscreen_agent/llm.js";
 import * as llmParams from "/mod/_core/onscreen_agent/llm-params.js";
-import * as prompt from "/mod/_core/onscreen_agent/prompt.js";
 import * as skills from "/mod/_core/onscreen_agent/skills.js";
 import * as storage from "/mod/_core/onscreen_agent/storage.js";
 import * as agentView from "/mod/_core/onscreen_agent/view.js";
@@ -22,6 +22,7 @@ const AGENT_IDLE_HINT_DELAY_MS = 2000;
 const COMPACT_MODE_TOP_EDGE_THRESHOLD_EM = 10;
 const DISPLAY_MODE_FULL = "full";
 const DISPLAY_MODE_COMPACT = "compact";
+const DISPLAY_MODE_TRANSITION_DURATION_MS = 260;
 const DRAG_CLICK_THRESHOLD = 6;
 const HISTORY_MIN_HEIGHT_PX = 80;
 const HISTORY_OFFSET_PX = 12;
@@ -150,6 +151,98 @@ function resolveDialogRef(refs, refKey, elementId) {
   return dialog;
 }
 
+function normalizeTransientKey(key) {
+  return typeof key === "string" ? key.trim() : "";
+}
+
+function normalizeTransientSection(section, fallbackKey = "") {
+  const key = normalizeTransientKey(section?.key || fallbackKey);
+  const content = typeof section?.content === "string" ? section.content.trim() : "";
+  const headingSource = section?.heading ?? section?.title ?? section?.label ?? key;
+  const heading = typeof headingSource === "string" ? headingSource.trim() : "";
+  const order = Number.isFinite(section?.order) ? Number(section.order) : 0;
+
+  if (!key || !content) {
+    return null;
+  }
+
+  return {
+    content,
+    heading: heading || key,
+    key,
+    order
+  };
+}
+
+function cloneTransientSection(section) {
+  return section ? { ...section } : null;
+}
+
+function createTransientRuntime() {
+  const sectionsByKey = new Map();
+
+  const runtime = {
+    clear() {
+      sectionsByKey.clear();
+    },
+    delete(key) {
+      const normalizedKey = normalizeTransientKey(key);
+
+      if (!normalizedKey) {
+        return false;
+      }
+
+      return sectionsByKey.delete(normalizedKey);
+    },
+    get(key) {
+      const normalizedKey = normalizeTransientKey(key);
+      return cloneTransientSection(sectionsByKey.get(normalizedKey)) || null;
+    },
+    list() {
+      return [...sectionsByKey.values()]
+        .sort((left, right) => {
+          const orderCompare = left.order - right.order;
+
+          if (orderCompare !== 0) {
+            return orderCompare;
+          }
+
+          return left.key.localeCompare(right.key);
+        })
+        .map((section) => cloneTransientSection(section))
+        .filter(Boolean);
+    },
+    set(keyOrSection, nextSection = {}) {
+      const normalizedSection =
+        typeof keyOrSection === "string"
+          ? normalizeTransientSection(
+              {
+                ...nextSection,
+                key: keyOrSection
+              },
+              keyOrSection
+            )
+          : normalizeTransientSection(keyOrSection);
+
+      if (!normalizedSection) {
+        if (typeof keyOrSection === "string") {
+          runtime.delete(keyOrSection);
+        }
+
+        return null;
+      }
+
+      sectionsByKey.set(normalizedSection.key, normalizedSection);
+      return cloneTransientSection(normalizedSection);
+    },
+    upsert(keyOrSection, nextSection = {}) {
+      return runtime.set(keyOrSection, nextSection);
+    }
+  };
+
+  return runtime;
+}
+
 function ensureChatRuntime(targetRuntime) {
   const existingChatRuntime =
     targetRuntime.chat && typeof targetRuntime.chat === "object"
@@ -167,6 +260,10 @@ function ensureChatRuntime(targetRuntime) {
 
   if (!targetRuntime.chat.attachments || typeof targetRuntime.chat.attachments !== "object") {
     targetRuntime.chat.attachments = createAttachmentRuntime();
+  }
+
+  if (!targetRuntime.chat.transient || typeof targetRuntime.chat.transient !== "object") {
+    targetRuntime.chat.transient = createTransientRuntime();
   }
 
   return targetRuntime.chat;
@@ -289,7 +386,7 @@ function findConversationInputMessage(history, assistantMessageId) {
       continue;
     }
 
-    if (isExecutionFollowUpKind(message.kind)) {
+    if (isFrameworkFollowUpKind(message.kind)) {
       continue;
     }
 
@@ -299,6 +396,68 @@ function findConversationInputMessage(history, assistantMessageId) {
   return null;
 }
 
+function normalizePromptHistoryRole(message) {
+  return typeof message?.role === "string" ? message.role.trim().toLowerCase() : "unknown";
+}
+
+function getPromptHistoryMessageContent(message) {
+  return typeof message?.content === "string" ? message.content : "";
+}
+
+function getPromptHistoryEntrySource(entry) {
+  return typeof entry?.source === "string" ? entry.source.trim() : "";
+}
+
+function getPromptHistoryPreparedBlock(message) {
+  const content = getPromptHistoryMessageContent(message);
+  const firstLine = content.split(/\r?\n/u, 1)[0]?.trim() || "";
+
+  return Object.values(agentLlm.ONSCREEN_AGENT_PREPARED_MESSAGE_BLOCK).includes(firstLine) ? firstLine : "";
+}
+
+function isPromptHistoryRealUserMessage(message) {
+  return (
+    normalizePromptHistoryRole(message) === "user" &&
+    getPromptHistoryPreparedBlock(message) === agentLlm.ONSCREEN_AGENT_PREPARED_MESSAGE_BLOCK.USER
+  );
+}
+
+function formatPromptHistoryRoleLabel(message, entry) {
+  const normalizedRole = normalizePromptHistoryRole(message);
+
+  if (getPromptHistoryEntrySource(entry) === "example") {
+    return normalizedRole === "assistant" ? "EXAMPLE ASSISTANT" : "EXAMPLE USER";
+  }
+
+  return normalizedRole.toUpperCase();
+}
+
+function getPromptHistoryMessageSlice(messages, slice = "all") {
+  const promptMessages = Array.isArray(messages) ? messages : [];
+
+  if (slice === "system") {
+    return promptMessages.filter((message) => normalizePromptHistoryRole(message) === "system");
+  }
+
+  if (slice === "history") {
+    return promptMessages.filter((message) => normalizePromptHistoryRole(message) !== "system");
+  }
+
+  return promptMessages;
+}
+
+function formatPromptHistoryMessageJson(message) {
+  if (message && typeof message === "object") {
+    return JSON.stringify(message, null, 2);
+  }
+
+  return JSON.stringify(message ?? null, null, 2);
+}
+
+function formatPromptHistoryJson(messages) {
+  return JSON.stringify(Array.isArray(messages) ? messages : [], null, 2);
+}
+
 function formatPromptHistoryText(messages) {
   if (!Array.isArray(messages) || !messages.length) {
     return "";
@@ -306,15 +465,55 @@ function formatPromptHistoryText(messages) {
 
   return messages
     .map((message) => {
-      const role = typeof message?.role === "string" ? message.role.toUpperCase() : "UNKNOWN";
-      const content = typeof message?.content === "string" ? message.content : "";
+      const role = normalizePromptHistoryRole(message).toUpperCase();
+      const content = getPromptHistoryMessageContent(message);
       return `${role}:\n${content}`;
     })
     .join("\n\n");
 }
 
-function buildPromptHistoryText(systemPrompt, history) {
-  return formatPromptHistoryText(agentApi.buildOnscreenAgentPromptMessages(systemPrompt, history));
+function formatPromptHistorySystemPromptText(messages) {
+  return (Array.isArray(messages) ? messages : [])
+    .map((message) => getPromptHistoryMessageContent(message))
+    .filter((content) => content.trim())
+    .join("\n\n");
+}
+
+function getOffsetTopWithinAncestor(target, ancestor) {
+  let offsetTop = 0;
+  let node = target;
+
+  while (node && node !== ancestor) {
+    offsetTop += Number(node.offsetTop) || 0;
+    node = node.offsetParent;
+  }
+
+  return offsetTop;
+}
+
+function countTextLines(text = "") {
+  return String(text).split("\n").length;
+}
+
+function getPromptHistoryJsonMessageStartLines(messages) {
+  const promptMessages = Array.isArray(messages) ? messages : [];
+  const startLines = [];
+  let nextLineIndex = 1;
+
+  promptMessages.forEach((message) => {
+    startLines.push(nextLineIndex);
+    nextLineIndex += countTextLines(formatPromptHistoryMessageJson(message));
+  });
+
+  return startLines;
+}
+
+function serializePromptHistoryMessages(messages, mode = "text") {
+  if (mode === "json") {
+    return formatPromptHistoryJson(messages);
+  }
+
+  return formatPromptHistoryText(messages);
 }
 
 function isContextLengthError(error) {
@@ -344,8 +543,8 @@ function trimHistoryTextToRecentMessages(text, targetFraction = 0.5) {
   return trimmed;
 }
 
-function isExecutionFollowUpKind(kind) {
-  return kind === "execution-output" || kind === "execution-retry";
+function isFrameworkFollowUpKind(kind) {
+  return kind === "execution-output" || kind === "execution-retry" || kind === "protocol-retry";
 }
 
 function dataTransferContainsFiles(dataTransfer) {
@@ -372,12 +571,12 @@ function dataTransferContainsFiles(dataTransfer) {
   return Number(dataTransfer.files?.length) > 0;
 }
 
-function buildEmptyAssistantRetryMessage() {
+function buildProtocolRetryMessage() {
   return [
     "Protocol correction: your previous response was empty.",
-    "Read the execution output above and continue.",
-    "If another browser step is needed, execute again now.",
-    "Otherwise provide the user-facing answer."
+    "Read the conversation above and continue.",
+    "If browser work is needed, execute now.",
+    "Otherwise answer the user."
   ].join("\n");
 }
 
@@ -621,6 +820,8 @@ const model = {
   chatRuntime: null,
   defaultSystemPrompt: "",
   displayMode: DISPLAY_MODE_COMPACT,
+  displayModeTransitionPhase: "",
+  displayModeTransitionTimer: 0,
   draft: "",
   draftAttachments: [],
   dragState: null,
@@ -644,10 +845,17 @@ const model = {
   isUiBubbleMounted: false,
   isSending: false,
   pendingHistorySnapshot: null,
+  pendingStreamingDelta: "",
+  pendingStreamingDeltaFrame: 0,
+  pendingStreamingDeltaMessage: null,
   pendingStreamingMessage: null,
+  promptHistoryEntries: [],
   promptHistoryMessages: [],
   promptHistoryMode: "text",
+  promptHistoryTargetMessageIndex: -1,
   promptHistoryTitle: "Context window",
+  promptInput: null,
+  promptRuntime: null,
   queuedSubmissions: [],
   rawOutputContent: "",
   rawOutputTitle: "Raw LLM Output",
@@ -926,12 +1134,62 @@ const model = {
     return this.displayMode === DISPLAY_MODE_FULL;
   },
 
-  get promptHistoryContent() {
-    if (this.promptHistoryMode === "json") {
-      return JSON.stringify(this.promptHistoryMessages, null, 2);
+  get isModeTransitionExpanding() {
+    return this.displayModeTransitionPhase === "expanding";
+  },
+
+  get isModeTransitionCollapsing() {
+    return this.displayModeTransitionPhase === "collapsing";
+  },
+
+  get promptHistoryUserMessageIndexes() {
+    if (!Array.isArray(this.promptHistoryMessages) || !this.promptHistoryMessages.length) {
+      return [];
     }
 
-    return formatPromptHistoryText(this.promptHistoryMessages);
+    return this.promptHistoryMessages.reduce((indexes, message, index) => {
+      if (isPromptHistoryRealUserMessage(message)) {
+        indexes.push(index);
+      }
+
+      return indexes;
+    }, []);
+  },
+
+  get hasPromptHistoryUserMessages() {
+    return this.promptHistoryUserMessageIndexes.length > 0;
+  },
+
+  get promptHistoryActiveUserMessagePosition() {
+    return this.promptHistoryUserMessageIndexes.indexOf(this.promptHistoryTargetMessageIndex);
+  },
+
+  get canJumpToPreviousPromptHistoryUserMessage() {
+    return this.promptHistoryActiveUserMessagePosition > 0;
+  },
+
+  get canJumpToNextPromptHistoryUserMessage() {
+    const userMessageIndexes = this.promptHistoryUserMessageIndexes;
+
+    if (!userMessageIndexes.length) {
+      return false;
+    }
+
+    const activePosition = this.promptHistoryActiveUserMessagePosition;
+
+    if (activePosition === -1) {
+      return true;
+    }
+
+    return activePosition < userMessageIndexes.length - 1;
+  },
+
+  get promptHistoryContent() {
+    return serializePromptHistoryMessages(this.promptHistoryMessages, this.promptHistoryMode);
+  },
+
+  get promptHistoryJsonMessageStartLines() {
+    return getPromptHistoryJsonMessageStartLines(this.promptHistoryMessages);
   },
 
   get promptHistorySections() {
@@ -939,13 +1197,20 @@ const model = {
       return [];
     }
 
-    return this.promptHistoryMessages.map((message) => ({
-      content: typeof message?.content === "string" ? message.content : "",
-      role: typeof message?.role === "string" ? message.role.toUpperCase() : "UNKNOWN",
-      tokenCountLabel: `${config.formatOnscreenAgentTokenCount(
-        countTextTokens(typeof message?.content === "string" ? message.content : "")
-      )} tokens`
-    }));
+    return this.promptHistoryMessages.map((message, index) => {
+      const content = getPromptHistoryMessageContent(message);
+      const entry = Array.isArray(this.promptHistoryEntries) ? this.promptHistoryEntries[index] : null;
+
+      return {
+        content,
+        isTarget: index === this.promptHistoryTargetMessageIndex,
+        isUser: isPromptHistoryRealUserMessage(message),
+        jsonContent: formatPromptHistoryMessageJson(message),
+        messageIndex: index,
+        role: formatPromptHistoryRoleLabel(message, entry),
+        tokenCountLabel: `${config.formatOnscreenAgentTokenCount(countTextTokens(content))} tokens`
+      };
+    });
   },
 
   get isDockedRight() {
@@ -1106,21 +1371,6 @@ const model = {
     return Math.min(this.getMaxResizableHistoryHeight(), Math.max(HISTORY_MIN_HEIGHT_PX, normalizedValue));
   },
 
-  fillHistoryToViewport() {
-    if (!this.isFullMode || !this.shouldShowHistory) {
-      return;
-    }
-
-    const fittedHeight = this.getMaxResizableHistoryHeight();
-    const storedHeight = config.normalizeOnscreenAgentHistoryHeight(this.historyHeight);
-
-    if (!Number.isFinite(fittedHeight) || fittedHeight <= 0 || fittedHeight === storedHeight) {
-      return;
-    }
-
-    this.historyHeight = fittedHeight;
-  },
-
   clampPosition(x, y) {
     const avatarSize = this.getAvatarSize();
     const maxX = Math.max(POSITION_MARGIN, this.getViewportWidth() - avatarSize - POSITION_MARGIN);
@@ -1156,10 +1406,6 @@ const model = {
     this.positionComposerActionMenu();
     this.render({
       preserveScroll: options.preserveScroll !== false
-    });
-
-    runOnNextFrame(() => {
-      this.fillHistoryToViewport();
     });
   },
 
@@ -1266,6 +1512,25 @@ const model = {
     this.uiBubbleExitTimer = clearTimer(this.uiBubbleExitTimer);
   },
 
+  clearDisplayModeTransitionTimer() {
+    this.displayModeTransitionTimer = clearTimer(this.displayModeTransitionTimer);
+  },
+
+  startDisplayModeTransition(phase = "") {
+    const normalizedPhase = phase === "expanding" || phase === "collapsing" ? phase : "";
+    this.clearDisplayModeTransitionTimer();
+    this.displayModeTransitionPhase = normalizedPhase;
+
+    if (!normalizedPhase) {
+      return;
+    }
+
+    this.displayModeTransitionTimer = window.setTimeout(() => {
+      this.displayModeTransitionTimer = 0;
+      this.displayModeTransitionPhase = "";
+    }, DISPLAY_MODE_TRANSITION_DURATION_MS);
+  },
+
   recordInteraction(options = {}) {
     this.hasInteracted = true;
     this.clearInteractionHintTimer();
@@ -1313,6 +1578,10 @@ const model = {
   },
 
   setStreamingAssistantStatus(content) {
+    if (this.isFullMode) {
+      return;
+    }
+
     const nextStatus = getStreamingAssistantStatus(content);
 
     if (this.status !== nextStatus) {
@@ -1475,25 +1744,92 @@ const model = {
     this.chatRuntime.messages = this.history.map((message) => createRuntimeMessageSnapshot(message));
   },
 
-  async replaceHistory(nextHistory) {
+  ensurePromptRuntime() {
+    if (!this.promptRuntime) {
+      this.promptRuntime = agentLlm.createOnscreenAgentPromptInstance();
+    }
+
+    return this.promptRuntime;
+  },
+
+  getPromptTransientSections() {
+    const transientSections = this.chatRuntime?.transient?.list?.();
+    return Array.isArray(transientSections) ? transientSections : [];
+  },
+
+  applyPromptInput(promptInput) {
+    const normalizedPromptInput = promptInput && typeof promptInput === "object" ? promptInput : null;
+
+    this.promptInput = normalizedPromptInput;
+    this.runtimeSystemPrompt = typeof normalizedPromptInput?.systemPrompt === "string"
+      ? normalizedPromptInput.systemPrompt
+      : "";
+    this.historyText = formatPromptHistoryText(normalizedPromptInput?.historyMessages);
+    this.promptHistoryEntries = Array.isArray(normalizedPromptInput?.requestEntries)
+      ? normalizedPromptInput.requestEntries.map((entry) => ({ ...entry }))
+      : [];
+    this.promptHistoryMessages = Array.isArray(normalizedPromptInput?.requestMessages)
+      ? normalizedPromptInput.requestMessages.map((message) => ({ ...message }))
+      : [];
+    this.historyTokenCount = countTextTokens(formatPromptHistoryText(this.promptHistoryMessages));
+    return normalizedPromptInput;
+  },
+
+  async rebuildPromptInput(options = {}) {
+    const history = Array.isArray(options.history) ? options.history : this.history;
+    const promptInput = await this.ensurePromptRuntime().build({
+      defaultSystemPrompt: this.defaultSystemPrompt,
+      historyMessages: history,
+      systemPrompt: this.systemPrompt,
+      transientSections: this.getPromptTransientSections()
+    });
+
+    this.applyPromptInput(promptInput);
+    return promptInput;
+  },
+
+  async refreshPromptInputFromHistory(history = this.history) {
+    const promptInput = await this.ensurePromptRuntime().updateHistory(history, {
+      defaultSystemPrompt: this.defaultSystemPrompt,
+      systemPrompt: this.systemPrompt,
+      transientSections: this.getPromptTransientSections()
+    });
+    this.applyPromptInput(promptInput);
+    return promptInput;
+  },
+
+  async preparePromptRequest(history = this.history) {
+    return agentLlm.prepareOnscreenAgentCompletionRequest({
+      defaultSystemPrompt: this.defaultSystemPrompt,
+      messages: history,
+      promptInstance: this.ensurePromptRuntime(),
+      settings: this.settings,
+      systemPrompt: this.systemPrompt,
+      transientSections: this.getPromptTransientSections()
+    });
+  },
+
+  async replaceHistory(nextHistory, options = {}) {
     this.history = Array.isArray(nextHistory) ? [...nextHistory] : [];
     this.syncCurrentChatRuntime();
+
+    if (options.refreshPrompt === false || (!this.defaultSystemPrompt && !this.isInitialized && !this.promptInput)) {
+      return;
+    }
+
     await this.refreshHistoryMetrics();
   },
 
-  async refreshHistoryMetrics() {
-    this.historyText = buildPromptHistoryText("", this.history);
-    const preparedRequest = await agentApi.prepareOnscreenAgentCompletionRequest({
-      messages: this.history,
-      settings: this.settings,
-      systemPrompt: this.runtimeSystemPrompt
-    });
-    this.promptHistoryMessages = Array.isArray(preparedRequest?.requestBody?.messages)
-      ? preparedRequest.requestBody.messages
-      : Array.isArray(preparedRequest?.messages)
-        ? preparedRequest.messages
-        : agentApi.buildOnscreenAgentPromptMessages(this.runtimeSystemPrompt, this.history);
-    this.historyTokenCount = countTextTokens(formatPromptHistoryText(this.promptHistoryMessages));
+  async refreshHistoryMetrics(options = {}) {
+    const history = Array.isArray(options.history) ? options.history : this.history;
+
+    if (options.rebuild === true) {
+      return this.rebuildPromptInput({
+        history
+      });
+    }
+
+    return this.refreshPromptInputFromHistory(history);
   },
 
   getConfiguredMaxTokens() {
@@ -1588,7 +1924,9 @@ const model = {
         this.agentY = storedConfig.agentY;
         this.displayMode = normalizeDisplayMode(storedConfig.displayMode);
         this.historyHeight = config.normalizeOnscreenAgentHistoryHeight(storedConfig.historyHeight);
-        await this.replaceHistory(storedHistory.map((message) => normalizeStoredMessage(message)));
+        await this.replaceHistory(storedHistory.map((message) => normalizeStoredMessage(message)), {
+          refreshPrompt: false
+        });
         this.ensurePosition({
           persist: true,
           reflow: false
@@ -1602,7 +1940,7 @@ const model = {
         await this.ensureDefaultSystemPrompt({
           preserveStatus: true
         });
-        this.systemPrompt = prompt.extractCustomOnscreenAgentSystemPrompt(
+        this.systemPrompt = agentLlm.extractCustomOnscreenAgentSystemPrompt(
           this.systemPrompt,
           this.defaultSystemPrompt
         );
@@ -1732,11 +2070,14 @@ const model = {
   mountHistory(refs = {}) {
     this.refs.historyShell = refs.historyShell || null;
     this.refs.scroller = refs.scroller || null;
-    this.refs.thread = refs.thread || null;
+    this.refs.thread =
+      refs.thread ||
+      this.refs.scroller?.querySelector?.("[data-chat-thread]") ||
+      this.refs.historyShell?.querySelector?.("[data-chat-thread]") ||
+      null;
     this.render();
 
     runOnNextFrame(() => {
-      this.fillHistoryToViewport();
       this.scrollHistoryToLatest();
     });
   },
@@ -1782,11 +2123,13 @@ const model = {
     this.cleanupDrag();
     this.cleanupHistoryResize();
     this.cancelStreamingMessageRender();
+    this.cancelPendingStreamingDelta();
     this.resetAttachmentDragState();
     this.clearInteractionHintTimer();
     this.clearUiBubbleEnterTimer();
     this.clearUiBubbleAutoHideTimer();
     this.clearUiBubbleExitTimer();
+    this.clearDisplayModeTransitionTimer();
     this.closeComposerActionMenu();
     this.activeUiBubble = null;
     this.compactAssistantBubble = null;
@@ -1988,6 +2331,13 @@ const model = {
     const shouldScrollToLatestOnRender = normalizedMode === DISPLAY_MODE_FULL && previousMode !== DISPLAY_MODE_FULL;
 
     this.displayMode = normalizedMode;
+    this.startDisplayModeTransition(
+      modeChanged
+        ? normalizedMode === DISPLAY_MODE_FULL
+          ? "expanding"
+          : "collapsing"
+        : ""
+    );
     this.closeComposerActionMenu();
 
     if (shouldPersist && modeChanged) {
@@ -2018,7 +2368,7 @@ const model = {
       this.isLoadingDefaultSystemPrompt = true;
 
       try {
-        this.defaultSystemPrompt = await prompt.fetchDefaultOnscreenAgentSystemPrompt({
+        this.defaultSystemPrompt = await agentLlm.fetchDefaultOnscreenAgentSystemPrompt({
           forceRefresh: options.forceRefresh
         });
       } finally {
@@ -2033,11 +2383,10 @@ const model = {
     return this.defaultSystemPrompt;
   },
 
-  async refreshRuntimeSystemPrompt() {
-    this.runtimeSystemPrompt = await prompt.buildRuntimeOnscreenAgentSystemPrompt(this.systemPrompt, {
-      defaultSystemPrompt: this.defaultSystemPrompt
+  async refreshRuntimeSystemPrompt(options = {}) {
+    await this.rebuildPromptInput({
+      history: Array.isArray(options.history) ? options.history : this.history
     });
-    await this.refreshHistoryMetrics();
     return this.runtimeSystemPrompt;
   },
 
@@ -2048,6 +2397,64 @@ const model = {
     }
 
     this.pendingStreamingMessage = null;
+  },
+
+  applyPendingStreamingDelta() {
+    const pendingMessage = this.pendingStreamingDeltaMessage;
+    const pendingDelta = this.pendingStreamingDelta;
+    this.pendingStreamingDelta = "";
+    this.pendingStreamingDeltaMessage = null;
+
+    if (!pendingMessage || pendingMessage.role !== "assistant" || !pendingDelta) {
+      return false;
+    }
+
+    pendingMessage.content += pendingDelta;
+    this.setStreamingAssistantStatus(pendingMessage.content);
+    this.maybeShowCompactStreamingAssistantBubble(pendingMessage);
+    this.scheduleStreamingMessageRender(pendingMessage);
+    return true;
+  },
+
+  cancelPendingStreamingDelta() {
+    if (this.pendingStreamingDeltaFrame) {
+      window.cancelAnimationFrame(this.pendingStreamingDeltaFrame);
+      this.pendingStreamingDeltaFrame = 0;
+    }
+
+    this.pendingStreamingDelta = "";
+    this.pendingStreamingDeltaMessage = null;
+  },
+
+  flushPendingStreamingDelta() {
+    if (this.pendingStreamingDeltaFrame) {
+      window.cancelAnimationFrame(this.pendingStreamingDeltaFrame);
+      this.pendingStreamingDeltaFrame = 0;
+    }
+
+    return this.applyPendingStreamingDelta();
+  },
+
+  queueStreamingDelta(message, delta) {
+    if (!message || message.role !== "assistant" || typeof delta !== "string" || !delta) {
+      return;
+    }
+
+    if (this.pendingStreamingDeltaMessage && this.pendingStreamingDeltaMessage !== message) {
+      this.flushPendingStreamingDelta();
+    }
+
+    this.pendingStreamingDeltaMessage = message;
+    this.pendingStreamingDelta += delta;
+
+    if (this.pendingStreamingDeltaFrame) {
+      return;
+    }
+
+    this.pendingStreamingDeltaFrame = window.requestAnimationFrame(() => {
+      this.pendingStreamingDeltaFrame = 0;
+      this.applyPendingStreamingDelta();
+    });
   },
 
   scheduleStreamingMessageRender(message) {
@@ -2597,11 +3004,18 @@ const model = {
     this.recordInteraction();
 
     try {
-      await this.refreshRuntimeSystemPrompt();
+      this.flushPendingStreamingDelta();
+
+      if (!this.promptInput) {
+        await this.refreshRuntimeSystemPrompt();
+      }
+
       const totalTokens = this.historyTokenCount;
       this.promptHistoryTitle = `Context window (${totalTokens.toLocaleString()} tokens)`;
       this.promptHistoryMode = "text";
+      this.promptHistoryTargetMessageIndex = -1;
       openDialog(resolveDialogRef(this.refs, "historyDialog", HISTORY_DIALOG_ELEMENT_ID));
+      this.schedulePromptHistoryScroll(-1);
     } catch (error) {
       this.status = error.message;
     }
@@ -2613,11 +3027,180 @@ const model = {
 
   setPromptHistoryMode(mode) {
     this.promptHistoryMode = mode === "json" ? "json" : "text";
+    this.schedulePromptHistoryScroll(this.promptHistoryTargetMessageIndex);
   },
 
-  async copyPromptHistory() {
-    const copied = await agentView.copyTextToClipboard(this.promptHistoryContent || "");
-    this.status = copied ? "Context window copied." : "Unable to copy context window.";
+  getPromptHistorySliceMessages(slice = "all") {
+    return getPromptHistoryMessageSlice(this.promptHistoryMessages, slice);
+  },
+
+  serializePromptHistorySlice(slice = "all") {
+    const messages = this.getPromptHistorySliceMessages(slice);
+
+    if (slice === "system" && this.promptHistoryMode !== "json") {
+      return formatPromptHistorySystemPromptText(messages);
+    }
+
+    if (slice === "system" && this.promptHistoryMode === "json") {
+      return messages.length === 1 ? formatPromptHistoryMessageJson(messages[0]) : formatPromptHistoryJson(messages);
+    }
+
+    return serializePromptHistoryMessages(messages, this.promptHistoryMode);
+  },
+
+  getPromptHistoryFrame() {
+    const dialog = resolveDialogRef(this.refs, "historyDialog", HISTORY_DIALOG_ELEMENT_ID);
+    return dialog?.querySelector?.("[data-prompt-history-frame]") || null;
+  },
+
+  getPromptHistoryJsonOutput() {
+    const dialog = resolveDialogRef(this.refs, "historyDialog", HISTORY_DIALOG_ELEMENT_ID);
+    return dialog?.querySelector?.("[data-prompt-history-json-output]") || null;
+  },
+
+  schedulePromptHistoryScroll(messageIndex = -1) {
+    window.requestAnimationFrame(() => {
+      this.scrollPromptHistoryToMessage(messageIndex);
+    });
+  },
+
+  scrollPromptHistoryToMessage(messageIndex = -1) {
+    const frame = this.getPromptHistoryFrame();
+
+    if (!frame) {
+      return;
+    }
+
+    if (!Number.isInteger(messageIndex) || messageIndex < 0) {
+      frame.scrollTo({
+        behavior: "auto",
+        left: 0,
+        top: 0
+      });
+      return;
+    }
+
+    if (this.promptHistoryMode === "json") {
+      const output = this.getPromptHistoryJsonOutput();
+      const startLineIndex = this.promptHistoryJsonMessageStartLines[messageIndex];
+
+      if (!output || !Number.isInteger(startLineIndex)) {
+        return;
+      }
+
+      const outputStyle = window.getComputedStyle(output);
+      const paddingTop = Number.parseFloat(outputStyle.paddingTop) || 0;
+      const fontSize = Number.parseFloat(outputStyle.fontSize) || 16;
+      const lineHeight = Number.parseFloat(outputStyle.lineHeight) || fontSize * 1.4;
+      const nextTop = Math.max(
+        0,
+        getOffsetTopWithinAncestor(output, frame) + paddingTop + startLineIndex * lineHeight
+      );
+
+      frame.scrollTo({
+        behavior: "auto",
+        left: 0,
+        top: nextTop
+      });
+      return;
+    }
+
+    const target = frame.querySelector(`[data-prompt-history-message-index="${messageIndex}"]`);
+
+    if (!target) {
+      return;
+    }
+
+    const targetRect = target.getBoundingClientRect();
+    const frameRect = frame.getBoundingClientRect();
+    const nextTop = Math.max(0, frame.scrollTop + targetRect.top - frameRect.top);
+
+    frame.scrollTo({
+      behavior: "auto",
+      left: 0,
+      top: nextTop
+    });
+  },
+
+  jumpToFirstPromptHistoryUserMessage() {
+    const [firstUserMessageIndex] = this.promptHistoryUserMessageIndexes;
+
+    if (!Number.isInteger(firstUserMessageIndex)) {
+      return;
+    }
+
+    this.promptHistoryTargetMessageIndex = firstUserMessageIndex;
+    this.schedulePromptHistoryScroll(firstUserMessageIndex);
+  },
+
+  jumpToAdjacentPromptHistoryUserMessage(direction = 1) {
+    const userMessageIndexes = this.promptHistoryUserMessageIndexes;
+
+    if (!userMessageIndexes.length) {
+      return;
+    }
+
+    const activePosition = this.promptHistoryActiveUserMessagePosition;
+    let nextPosition = -1;
+
+    if (direction < 0) {
+      if (activePosition > 0) {
+        nextPosition = activePosition - 1;
+      }
+    } else if (activePosition === -1) {
+      nextPosition = 0;
+    } else if (activePosition < userMessageIndexes.length - 1) {
+      nextPosition = activePosition + 1;
+    }
+
+    if (nextPosition === -1) {
+      return;
+    }
+
+    const nextMessageIndex = userMessageIndexes[nextPosition];
+
+    this.promptHistoryTargetMessageIndex = nextMessageIndex;
+    this.schedulePromptHistoryScroll(nextMessageIndex);
+  },
+
+  jumpToPreviousPromptHistoryUserMessage() {
+    this.jumpToAdjacentPromptHistoryUserMessage(-1);
+  },
+
+  jumpToNextPromptHistoryUserMessage() {
+    this.jumpToAdjacentPromptHistoryUserMessage(1);
+  },
+
+  async copyPromptHistorySlice(slice = "all") {
+    const sliceMessages = this.getPromptHistorySliceMessages(slice);
+    const label =
+      slice === "system" ? "system prompt" : slice === "history" ? "history" : "context window";
+    const payload = this.serializePromptHistorySlice(slice);
+
+    if (!sliceMessages.length || !payload) {
+      this.status =
+        slice === "system"
+          ? "No system prompt available."
+          : slice === "history"
+            ? "No history available."
+            : "No context window available.";
+      return;
+    }
+
+    const copied = await agentView.copyTextToClipboard(payload);
+    this.status = copied ? `${label[0].toUpperCase()}${label.slice(1)} copied.` : `Unable to copy ${label}.`;
+  },
+
+  async copyPromptHistorySystemPrompt() {
+    await this.copyPromptHistorySlice("system");
+  },
+
+  async copyPromptHistoryHistory() {
+    await this.copyPromptHistorySlice("history");
+  },
+
+  async copyPromptHistoryAll() {
+    await this.copyPromptHistorySlice("all");
   },
 
   async handleClearClick() {
@@ -2631,7 +3214,10 @@ const model = {
     this.clearComposerDraft();
     this.queuedSubmissions = [];
     this.cancelStreamingMessageRender();
-    await this.replaceHistory([]);
+    this.cancelPendingStreamingDelta();
+    await this.replaceHistory([], {
+      refreshPrompt: false
+    });
     this.executionOutputOverrides = Object.create(null);
     this.rerunningMessageId = "";
     this.stopRequested = false;
@@ -2647,10 +3233,15 @@ const model = {
       this.chatRuntime.attachments.clear();
     }
 
+    if (this.chatRuntime?.transient) {
+      this.chatRuntime.transient.clear();
+    }
+
     if (this.executionContext) {
       this.executionContext.reset();
     }
 
+    await this.refreshRuntimeSystemPrompt();
     await this.persistHistory({
       immediate: true
     });
@@ -2658,30 +3249,22 @@ const model = {
     this.status = "Chat cleared and execution context reset.";
   },
 
-  async streamAssistantResponse(requestMessages, assistantMessage) {
+  async streamAssistantResponse(requestMessages, assistantMessage, preparedRequest) {
     this.status = "Thinking...";
-    const runtimeSystemPrompt = await prompt.buildRuntimeOnscreenAgentSystemPrompt(this.systemPrompt, {
-      defaultSystemPrompt: this.defaultSystemPrompt
-    });
-    this.runtimeSystemPrompt = runtimeSystemPrompt;
     const controller = new AbortController();
     this.activeRequestController = controller;
     let responseMeta = null;
 
     try {
       responseMeta = await agentApi.streamOnscreenAgentCompletion({
-        settings: this.settings,
-        systemPrompt: runtimeSystemPrompt,
-        messages: requestMessages,
+        preparedRequest,
         onDelta: (delta) => {
-          assistantMessage.content += delta;
-          this.setStreamingAssistantStatus(assistantMessage.content);
-          this.maybeShowCompactStreamingAssistantBubble(assistantMessage);
-          this.scheduleStreamingMessageRender(assistantMessage);
+          this.queueStreamingDelta(assistantMessage, delta);
         },
         signal: controller.signal
       });
     } catch (error) {
+      this.flushPendingStreamingDelta();
       assistantMessage.streaming = false;
       this.cancelStreamingMessageRender();
 
@@ -2704,7 +3287,7 @@ const model = {
             })
           );
           hasContent = Boolean(assistantMessage.content.trim());
-          await this.refreshHistoryMetrics();
+          await this.refreshPromptInputFromHistory(this.history);
           await this.persistHistory({
             immediate: true
           });
@@ -2721,6 +3304,7 @@ const model = {
       throw error;
     }
 
+    this.flushPendingStreamingDelta();
     assistantMessage.streaming = false;
     this.cancelStreamingMessageRender();
 
@@ -2738,7 +3322,7 @@ const model = {
         store: this
       })
     );
-    await this.refreshHistoryMetrics();
+    await this.refreshPromptInputFromHistory(this.history);
     await this.persistHistory({
       immediate: true
     });
@@ -2763,7 +3347,7 @@ const model = {
     }
 
     try {
-      await this.refreshRuntimeSystemPrompt();
+      await this.refreshHistoryMetrics();
     } catch (error) {
       this.status = error.message;
       return;
@@ -2775,14 +3359,14 @@ const model = {
   async compactHistory(options = {}) {
     const historyText = this.historyText.trim();
     const mode =
-      options.mode === prompt.ONSCREEN_AGENT_HISTORY_COMPACT_MODE.AUTOMATIC
-        ? prompt.ONSCREEN_AGENT_HISTORY_COMPACT_MODE.AUTOMATIC
-        : prompt.ONSCREEN_AGENT_HISTORY_COMPACT_MODE.USER;
+      options.mode === agentLlm.ONSCREEN_AGENT_HISTORY_COMPACT_MODE.AUTOMATIC
+        ? agentLlm.ONSCREEN_AGENT_HISTORY_COMPACT_MODE.AUTOMATIC
+        : agentLlm.ONSCREEN_AGENT_HISTORY_COMPACT_MODE.USER;
     const preserveFocus = options.preserveFocus !== false;
     const statusText =
       typeof options.statusText === "string" && options.statusText.trim()
         ? options.statusText.trim()
-        : mode === prompt.ONSCREEN_AGENT_HISTORY_COMPACT_MODE.AUTOMATIC
+        : mode === agentLlm.ONSCREEN_AGENT_HISTORY_COMPACT_MODE.AUTOMATIC
           ? "Compacting history before continuing..."
           : "Compacting history...";
 
@@ -2798,7 +3382,7 @@ const model = {
     this.status = statusText;
 
     try {
-      const compactPrompt = await prompt.fetchOnscreenAgentHistoryCompactPrompt({
+      const compactPrompt = await agentLlm.fetchOnscreenAgentHistoryCompactPrompt({
         mode
       });
       let trimmedHistoryText = historyText;
@@ -2911,10 +3495,27 @@ const model = {
     let nextUserMessage = initialUserMessage;
     let emptyAssistantRetryCount = 0;
     while (nextUserMessage) {
-      if (this.isHistoryOverConfiguredMaxTokens()) {
+      let requestMessages =
+        this.history[this.history.length - 1]?.id === nextUserMessage.id
+          ? [...this.history]
+          : [...this.history, nextUserMessage];
+      let preparedRequest = null;
+
+      try {
+        preparedRequest = await this.preparePromptRequest(requestMessages);
+      } catch (error) {
+        this.status = error.message;
+        return "failed";
+      }
+
+      const requestTokenCount = countTextTokens(
+        formatPromptHistoryText(preparedRequest?.promptInput?.requestMessages)
+      );
+
+      if (requestTokenCount > this.getConfiguredMaxTokens()) {
         const pendingMessageIsLatestHistoryMessage = this.history[this.history.length - 1]?.id === nextUserMessage.id;
         const compactedMessage = await this.compactHistory({
-          mode: prompt.ONSCREEN_AGENT_HISTORY_COMPACT_MODE.AUTOMATIC,
+          mode: agentLlm.ONSCREEN_AGENT_HISTORY_COMPACT_MODE.AUTOMATIC,
           preserveFocus: false,
           statusText: "Compacting history before continuing..."
         });
@@ -2926,6 +3527,18 @@ const model = {
         if (pendingMessageIsLatestHistoryMessage) {
           nextUserMessage = compactedMessage;
         }
+
+        requestMessages =
+          this.history[this.history.length - 1]?.id === nextUserMessage.id
+            ? [...this.history]
+            : [...this.history, nextUserMessage];
+
+        try {
+          preparedRequest = await this.preparePromptRequest(requestMessages);
+        } catch (error) {
+          this.status = error.message;
+          return "failed";
+        }
       }
 
       const boundaryActionBeforeStream = this.getBoundaryAction();
@@ -2934,17 +3547,14 @@ const model = {
         return boundaryActionBeforeStream;
       }
 
-      const requestMessages =
-        this.history[this.history.length - 1]?.id === nextUserMessage.id
-          ? [...this.history]
-          : [...this.history, nextUserMessage];
+      this.applyPromptInput(preparedRequest.promptInput);
       const assistantMessage = createStreamingAssistantMessage();
 
       this.history = [...requestMessages, assistantMessage];
       this.render();
 
       try {
-        const streamResult = await this.streamAssistantResponse(requestMessages, assistantMessage);
+        const streamResult = await this.streamAssistantResponse(requestMessages, assistantMessage, preparedRequest);
 
         if (streamResult.stopped) {
           if (!streamResult.hasContent) {
@@ -2972,7 +3582,7 @@ const model = {
         }
 
         if (!hasAssistantContent) {
-          if (isExecutionFollowUpKind(nextUserMessage.kind) && emptyAssistantRetryCount < MAX_PROTOCOL_RETRY_COUNT) {
+          if (emptyAssistantRetryCount < MAX_PROTOCOL_RETRY_COUNT) {
             emptyAssistantRetryCount += 1;
             await this.replaceHistory(requestMessages);
             await this.persistHistory({
@@ -2987,25 +3597,25 @@ const model = {
 
             nextUserMessage = await createProcessedMessage(
               "user",
-              buildEmptyAssistantRetryMessage(),
+              buildProtocolRetryMessage(),
               {
-                kind: "execution-retry"
+                kind: "protocol-retry"
               },
               {
                 history: requestMessages,
-                phase: "execution-retry",
+                phase: "protocol-retry",
                 responseMeta: streamResult.responseMeta,
                 store: this
               }
             );
             this.status = hasVerifiedEmptyAssistantResponse(streamResult)
-              ? "Retrying: assistant response was empty after execution..."
-              : "Retrying: no usable assistant content was received after execution...";
+              ? "Retrying: assistant response was empty..."
+              : "Retrying: no usable assistant content was received...";
             continue;
           }
 
           assistantMessage.content = "[No content returned]";
-          await this.refreshHistoryMetrics();
+          await this.refreshPromptInputFromHistory(this.history);
           await this.persistHistory({
             immediate: true
           });
@@ -3019,7 +3629,7 @@ const model = {
         if (!assistantMessage.content.trim()) {
           await this.replaceHistory(requestMessages);
         } else {
-          await this.refreshHistoryMetrics();
+          await this.refreshPromptInputFromHistory(this.history);
         }
 
         await this.persistHistory({
@@ -3036,6 +3646,8 @@ const model = {
         return "complete";
       }
 
+      this.executionOutputOverrides[assistantMessage.id] = execution.createExecutionOutputSnapshots(executionResults);
+
       const executionOutputMessage = await createProcessedMessage(
         "user",
         execution.formatExecutionResultsMessage(executionResults),
@@ -3049,6 +3661,7 @@ const model = {
           store: this
         }
       );
+
       await this.replaceHistory([...this.history, executionOutputMessage]);
       await this.persistHistory({
         immediate: true
@@ -3143,25 +3756,6 @@ const model = {
 
     if (!draftSubmission) {
       return;
-    }
-
-    try {
-      await this.refreshRuntimeSystemPrompt();
-    } catch (error) {
-      this.status = error.message;
-      return;
-    }
-
-    if (this.isHistoryOverConfiguredMaxTokens()) {
-      const compacted = await this.compactHistory({
-        mode: prompt.ONSCREEN_AGENT_HISTORY_COMPACT_MODE.AUTOMATIC,
-        preserveFocus: false,
-        statusText: "Compacting history before send..."
-      });
-
-      if (!compacted) {
-        return;
-      }
     }
 
     const userMessage = await createProcessedMessage(
