@@ -100,6 +100,27 @@
   margin-top: 1rem;
 }
 
+.admin-agent-local-settings {
+  display: grid;
+  gap: 1rem;
+  margin-top: 1rem;
+}
+
+.admin-agent-local-provider-panel {
+  min-width: 0;
+}
+
+.admin-agent-local-provider-panel .webllm-config-card,
+.admin-agent-local-provider-panel .huggingface-config-card {
+  width: 100%;
+  min-height: 0;
+}
+
+.admin-agent-local-provider-panel .webllm-card,
+.admin-agent-local-provider-panel .huggingface-card {
+  box-shadow: none;
+}
+
 .chat-option x-icon {
   font-size: 16px;
   color: var(--color-accent-primary);

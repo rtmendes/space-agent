@@ -1,40 +1,13 @@
 import { compareModelRecords } from "/mod/_core/webllm/helpers.js";
 import { WORKER_INBOUND, WORKER_OUTBOUND } from "/mod/_core/webllm/protocol.js";
+import {
+  AdminAgentLocalLlmRuntime,
+  createAbortError,
+  createDeferred,
+  createLocalRuntimeError
+} from "/mod/_core/admin/views/agent/local-runtime.js";
 
 const WEBLLM_CONFIG_ROUTE = "/#/webllm";
-
-function createDeferred() {
-  let resolve = null;
-  let reject = null;
-  const promise = new Promise((nextResolve, nextReject) => {
-    resolve = nextResolve;
-    reject = nextReject;
-  });
-
-  return {
-    promise,
-    reject,
-    resolve
-  };
-}
-
-function createAbortError(message = "The operation was aborted.") {
-  try {
-    return new DOMException(message, "AbortError");
-  } catch {
-    const error = new Error(message);
-    error.name = "AbortError";
-    return error;
-  }
-}
-
-function createWebLlmError(error, fallbackMessage) {
-  if (error instanceof Error) {
-    return error;
-  }
-
-  return new Error(typeof error?.message === "string" && error.message ? error.message : fallbackMessage);
-}
 
 function createInitialState() {
   return {
@@ -65,95 +38,67 @@ function normalizeProgressReport(report = {}) {
   };
 }
 
-function cloneState(state) {
-  return {
-    ...state,
-    cachedModelIds: [...state.cachedModelIds],
-    loadProgress: {
-      ...state.loadProgress
-    },
-    prebuiltModels: [...state.prebuiltModels]
-  };
-}
-
 function isLoadStoppedError(error) {
   const message = String(error?.message || "").toLowerCase();
   return message.includes("load stopped") || message.includes("aborted");
 }
 
-export class AdminAgentWebLlmRuntime {
+export class AdminAgentWebLlmRuntime extends AdminAgentLocalLlmRuntime {
   constructor(options = {}) {
-    this.onStateChange = typeof options.onStateChange === "function" ? options.onStateChange : null;
-    this.worker = null;
-    this.state = createInitialState();
-    this.readyDeferred = createDeferred();
+    super({
+      initialState: createInitialState(),
+      onStateChange: options.onStateChange,
+      protocol: {
+        WORKER_INBOUND,
+        WORKER_OUTBOUND
+      },
+      providerLabel: "WebLLM",
+      readyStatusText: "Ready.",
+      streamMode: "webllm",
+      workerUrl: "/mod/_core/admin/views/agent/webllm-worker.js"
+    });
+
     this.cacheWaiters = [];
-    this.pendingChat = null;
     this.pendingLoad = null;
     this.pendingUnload = null;
-    this.handleWorkerMessage = this.handleWorkerMessage.bind(this);
   }
 
-  emitState() {
-    this.onStateChange?.(cloneState(this.state));
-  }
-
-  setState(patch) {
-    this.state = {
-      ...this.state,
-      ...patch
-    };
-    this.emitState();
-  }
-
-  getSnapshot() {
-    return cloneState(this.state);
-  }
-
-  destroy() {
-    const runtimeClosedError = new Error("WebLLM runtime closed.");
-
-    if (this.worker) {
-      this.worker.removeEventListener("message", this.handleWorkerMessage);
-      this.worker.terminate();
-      this.worker = null;
-    }
-
-    this.readyDeferred.reject(runtimeClosedError);
+  handleProviderDestroy(runtimeClosedError) {
     this.pendingLoad?.deferred.reject(runtimeClosedError);
     this.pendingUnload?.deferred.reject(runtimeClosedError);
-    this.pendingChat?.deferred.reject(runtimeClosedError);
     this.pendingLoad = null;
     this.pendingUnload = null;
-    this.clearPendingChat();
     this.resolveCacheWaiters();
   }
 
-  ensureWorker() {
-    if (this.worker) {
-      return this.readyDeferred.promise;
-    }
-
-    this.worker = new Worker("/mod/_core/admin/views/agent/webllm-worker.js", {
-      type: "module"
-    });
-    this.worker.addEventListener("message", this.handleWorkerMessage);
-    this.worker.postMessage({
-      payload: {},
-      type: WORKER_INBOUND.BOOT
-    });
-    return this.readyDeferred.promise;
+  handleWorkerFailure(error) {
+    this.pendingLoad?.deferred.reject(error);
+    this.pendingUnload?.deferred.reject(error);
+    this.pendingLoad = null;
+    this.pendingUnload = null;
+    this.resolveCacheWaiters();
   }
 
-  postMessage(type, payload = {}) {
-    if (!this.worker) {
-      throw new Error("WebLLM worker is not available.");
-    }
-
-    this.worker.postMessage({
-      payload,
-      type
+  handleReadyPayload(payload = {}) {
+    super.handleReadyPayload(payload, {
+      prebuiltModels: Array.isArray(payload.prebuiltModels) ? [...payload.prebuiltModels].sort(compareModelRecords) : []
     });
+  }
+
+  readChatDelta(payload = {}) {
+    return typeof payload.delta === "string" ? payload.delta : super.readChatDelta(payload, this.pendingChat);
+  }
+
+  buildChatResponseMeta(payload = {}, pendingChat = {}) {
+    return {
+      finishReason: payload.finishReason || "stop",
+      mode: "webllm",
+      payloadCount: Math.max(1, pendingChat.deltaCount || 0),
+      protocolObserved: true,
+      sawDoneMarker: false,
+      textChunkCount: pendingChat.deltaCount || 0,
+      verifiedEmpty: !String(payload.text || "").trim()
+    };
   }
 
   resolveCacheWaiters() {
@@ -167,31 +112,8 @@ export class AdminAgentWebLlmRuntime {
     waiters.forEach((resolve) => resolve(downloadedModels));
   }
 
-  clearPendingChat() {
-    if (!this.pendingChat) {
-      return;
-    }
-
-    this.pendingChat.signal?.removeEventListener("abort", this.pendingChat.abortHandler);
-    this.pendingChat = null;
-  }
-
-  handleWorkerMessage(event) {
-    const message = event.data || {};
-    const payload = message.payload || {};
-
+  handleProviderWorkerMessage(message = {}, payload = {}) {
     switch (message.type) {
-      case WORKER_OUTBOUND.READY: {
-        this.setState({
-          error: "",
-          isWorkerReady: true,
-          prebuiltModels: Array.isArray(payload.prebuiltModels) ? [...payload.prebuiltModels].sort(compareModelRecords) : [],
-          statusText: "Ready.",
-          webgpuSupported: payload.webgpuSupported !== false
-        });
-        this.readyDeferred.resolve(this.getSnapshot());
-        break;
-      }
       case WORKER_OUTBOUND.CACHE_STATUS: {
         this.setState({
           cacheStatusReady: true,
@@ -246,7 +168,7 @@ export class AdminAgentWebLlmRuntime {
 
         const pendingLoad = this.pendingLoad;
         this.pendingLoad = null;
-        const error = createWebLlmError(payload.error, "Unable to load the selected WebLLM model.");
+        const error = createLocalRuntimeError(payload.error, "Unable to load the selected WebLLM model.");
         this.setState({
           error: error.message,
           isLoadingModel: false,
@@ -298,7 +220,7 @@ export class AdminAgentWebLlmRuntime {
 
         const pendingUnload = this.pendingUnload;
         this.pendingUnload = null;
-        const error = createWebLlmError(payload.error, "Unable to unload the WebLLM model.");
+        const error = createLocalRuntimeError(payload.error, "Unable to unload the WebLLM model.");
         this.setState({
           error: error.message,
           isUnloadingModel: false,
@@ -307,62 +229,6 @@ export class AdminAgentWebLlmRuntime {
         pendingUnload.deferred.reject(error);
         break;
       }
-      case WORKER_OUTBOUND.CHAT_DELTA: {
-        if (!this.pendingChat || payload.requestId !== this.pendingChat.requestId) {
-          return;
-        }
-
-        const delta = typeof payload.delta === "string" ? payload.delta : "";
-        if (delta) {
-          this.pendingChat.deltaCount += 1;
-          this.pendingChat.onDelta(delta);
-        }
-        break;
-      }
-      case WORKER_OUTBOUND.CHAT_COMPLETE: {
-        if (!this.pendingChat || payload.requestId !== this.pendingChat.requestId) {
-          return;
-        }
-
-        const pendingChat = this.pendingChat;
-        this.clearPendingChat();
-        const responseMeta = {
-          finishReason: payload.finishReason || "stop",
-          mode: "webllm",
-          payloadCount: Math.max(1, pendingChat.deltaCount),
-          protocolObserved: true,
-          sawDoneMarker: false,
-          textChunkCount: pendingChat.deltaCount,
-          verifiedEmpty: !String(payload.text || "").trim()
-        };
-
-        if (pendingChat.abortRequested || responseMeta.finishReason === "abort") {
-          const abortError = createAbortError();
-          abortError.responseMeta = responseMeta;
-          pendingChat.deferred.reject(abortError);
-          return;
-        }
-
-        pendingChat.deferred.resolve(responseMeta);
-        break;
-      }
-      case WORKER_OUTBOUND.CHAT_ERROR: {
-        if (!this.pendingChat || payload.requestId !== this.pendingChat.requestId) {
-          return;
-        }
-
-        const pendingChat = this.pendingChat;
-        this.clearPendingChat();
-
-        if (pendingChat.abortRequested) {
-          pendingChat.deferred.reject(createAbortError());
-          return;
-        }
-
-        pendingChat.deferred.reject(createWebLlmError(payload.error, "WebLLM chat failed."));
-        break;
-      }
-      case WORKER_OUTBOUND.INTERRUPT_ACK:
       case WORKER_OUTBOUND.CHAT_RESET:
       case WORKER_OUTBOUND.DISCARD_COMPLETE:
       case WORKER_OUTBOUND.DISCARD_ERROR:
@@ -379,6 +245,13 @@ export class AdminAgentWebLlmRuntime {
   isModelCached(modelId) {
     const normalizedModelId = String(modelId || "").trim();
     return normalizedModelId ? this.state.cachedModelIds.includes(normalizedModelId) : false;
+  }
+
+  isKnownModel(modelId) {
+    const normalizedModelId = String(modelId || "").trim();
+    return normalizedModelId
+      ? this.state.prebuiltModels.some((modelRecord) => modelRecord.model_id === normalizedModelId)
+      : false;
   }
 
   async requestCacheStatus() {
@@ -467,9 +340,9 @@ export class AdminAgentWebLlmRuntime {
     return deferred.promise;
   }
 
-  async ensureModelLoaded(modelId, options = {}) {
+  async ensureModelLoaded(modelSelection = {}, options = {}) {
     const signal = options.signal;
-    const normalizedModelId = String(modelId || "").trim();
+    const normalizedModelId = String(modelSelection?.modelId || "").trim();
 
     await this.ensureWorker();
 
@@ -478,15 +351,15 @@ export class AdminAgentWebLlmRuntime {
     }
 
     if (!normalizedModelId) {
-      throw new Error("Choose a downloaded WebLLM model.");
+      throw new Error("Choose a WebLLM model.");
     }
 
     if (!this.state.cacheStatusReady) {
       await this.waitForInitialCacheStatus();
     }
 
-    if (!this.isModelCached(normalizedModelId)) {
-      throw new Error("This WebLLM model is not downloaded in this browser. Open WebLLM configuration to download it first.");
+    if (!this.isKnownModel(normalizedModelId)) {
+      throw new Error("Choose a valid WebLLM model.");
     }
 
     if (signal?.aborted) {
@@ -499,7 +372,6 @@ export class AdminAgentWebLlmRuntime {
       }
 
       let abortRequested = signal.aborted;
-
       const abortHandler = () => {
         abortRequested = true;
         void this.unloadModel().catch(() => {});
@@ -551,61 +423,6 @@ export class AdminAgentWebLlmRuntime {
     }
 
     return await awaitLoad(this.loadModel(normalizedModelId));
-  }
-
-  async streamCompletion(options = {}) {
-    const onDelta = typeof options.onDelta === "function" ? options.onDelta : () => {};
-    const signal = options.signal;
-
-    await this.ensureModelLoaded(options.modelId, {
-      signal
-    });
-
-    if (signal?.aborted) {
-      throw createAbortError();
-    }
-
-    if (this.pendingChat) {
-      throw new Error("A WebLLM response is already running.");
-    }
-
-    const deferred = createDeferred();
-    const requestId = crypto.randomUUID();
-    const abortHandler = () => {
-      if (!this.pendingChat || this.pendingChat.requestId !== requestId) {
-        return;
-      }
-
-      this.pendingChat.abortRequested = true;
-      this.postMessage(WORKER_INBOUND.INTERRUPT, {
-        requestId
-      });
-    };
-
-    this.pendingChat = {
-      abortHandler,
-      abortRequested: false,
-      deferred,
-      deltaCount: 0,
-      onDelta,
-      requestId,
-      signal
-    };
-
-    signal?.addEventListener("abort", abortHandler, {
-      once: true
-    });
-
-    this.postMessage(WORKER_INBOUND.RUN_CHAT, {
-      messages: Array.isArray(options.messages) ? options.messages : [],
-      requestOptions:
-        options.requestOptions && typeof options.requestOptions === "object" && !Array.isArray(options.requestOptions)
-          ? { ...options.requestOptions }
-          : {},
-      requestId
-    });
-
-    return deferred.promise;
   }
 
   async resetChat() {

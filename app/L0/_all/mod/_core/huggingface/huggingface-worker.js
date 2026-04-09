@@ -9,6 +9,8 @@ let currentLoadRequestId = "";
 let currentModelId = "";
 let currentDtype = "";
 let currentStopper = null;
+let currentLoadProgressTracker = null;
+const LOAD_PROGRESS_EMIT_INTERVAL_MS = 120;
 
 function postMessageToHost(type, payload = {}) {
   self.postMessage({ payload, type });
@@ -28,6 +30,15 @@ function createWorkerError(message, extra = {}) {
   const error = new Error(message);
   Object.assign(error, extra);
   return error;
+}
+
+function clampProgress(value) {
+  return Math.max(0, Math.min(1, Number(value) || 0));
+}
+
+function readFiniteNumber(value) {
+  const numericValue = Number(value);
+  return Number.isFinite(numericValue) ? numericValue : null;
 }
 
 function serializeError(error) {
@@ -156,16 +167,16 @@ function normalizeProgressValue(report = {}) {
   const loaded = Number(report.loaded);
   const total = Number(report.total);
   if (Number.isFinite(loaded) && Number.isFinite(total) && total > 0) {
-    return Math.max(0, Math.min(1, loaded / total));
+    return clampProgress(loaded / total);
   }
 
   const directProgress = Number(report.progress);
   if (Number.isFinite(directProgress) && directProgress > 1) {
-    return Math.max(0, Math.min(1, directProgress / 100));
+    return clampProgress(directProgress / 100);
   }
 
   if (Number.isFinite(directProgress) && directProgress >= 0) {
-    return Math.max(0, Math.min(1, directProgress));
+    return clampProgress(directProgress);
   }
 
   return 0;
@@ -230,43 +241,157 @@ function formatProgressDetail(report = {}) {
   return "";
 }
 
-function formatProgressStepId(report = {}, modelId = "") {
-  const status = normalizeProgressStatus(report);
-  const source = resolveProgressSource(report, modelId);
-  return `${status}:${source}`;
+function createLoadProgressTracker() {
+  return {
+    files: new Map(),
+    lastReport: null,
+    timerId: null
+  };
 }
 
-function formatProgressStep(report = {}, modelId = "") {
-  const status = normalizeProgressStatus(report);
+function clearLoadProgressTrackerTimer(tracker) {
+  if (!tracker?.timerId) {
+    return;
+  }
+
+  clearTimeout(tracker.timerId);
+  tracker.timerId = null;
+}
+
+function disposeLoadProgressTracker(tracker) {
+  if (!tracker) {
+    return;
+  }
+
+  clearLoadProgressTrackerTimer(tracker);
+  tracker.files.clear();
+  tracker.lastReport = null;
+}
+
+function updateLoadProgressTracker(tracker, report = {}, modelId = "") {
+  if (!tracker?.files) {
+    return null;
+  }
+
   const source = resolveProgressSource(report, modelId);
-  const detail = formatProgressDetail(report);
-  let label = "";
+  const previousEntry = tracker.files.get(source) || null;
+  const status = normalizeProgressStatus(report);
+  const loaded = readFiniteNumber(report.loaded);
+  const total = readFiniteNumber(report.total);
 
-  if (status === "download") {
-    label = `Downloading ${source}`;
+  const nextEntry = {
+    loaded: loaded != null && loaded >= 0
+      ? loaded
+      : previousEntry?.loaded ?? null,
+    progress: normalizeProgressValue(report),
+    source,
+    status,
+    total: total != null && total > 0
+      ? total
+      : previousEntry?.total ?? null,
+    updatedAt: Date.now()
+  };
+
+  if (nextEntry.total != null && nextEntry.total > 0) {
+    const previousLoaded = previousEntry?.loaded ?? 0;
+    const boundedLoaded = Math.min(nextEntry.total, Math.max(nextEntry.loaded ?? 0, previousLoaded));
+    nextEntry.loaded = status === "done" ? nextEntry.total : boundedLoaded;
+    nextEntry.progress = clampProgress(nextEntry.loaded / nextEntry.total);
+  } else if (status === "done") {
+    nextEntry.progress = 1;
   }
 
-  if (!label && status === "done") {
-    label = `Finished ${source}`;
+  tracker.files.set(source, nextEntry);
+  tracker.lastReport = report;
+  return nextEntry;
+}
+
+function summarizeLoadProgress(tracker, report = {}, modelId = "") {
+  const source = resolveProgressSource(report, modelId);
+  const rawStatus = normalizeProgressStatus(report);
+  const entries = tracker?.files ? Array.from(tracker.files.values()) : [];
+  const aggregateEntries = entries.filter((entry) => Number.isFinite(entry.total) && entry.total > 0);
+  const activeDownloadEntries = entries.filter((entry) => entry.status === "download");
+  const aggregateLoaded = aggregateEntries.reduce((sum, entry) => sum + Math.min(entry.loaded ?? 0, entry.total), 0);
+  const aggregateTotal = aggregateEntries.reduce((sum, entry) => sum + entry.total, 0);
+  const aggregateProgress = aggregateTotal > 0
+    ? clampProgress(aggregateLoaded / aggregateTotal)
+    : normalizeProgressValue(report);
+  const aggregateDetail = aggregateTotal > 0
+    ? `${formatProgressBytes(aggregateLoaded)} / ${formatProgressBytes(aggregateTotal)}`
+    : formatProgressDetail(report);
+
+  let status = rawStatus;
+  let stepLabel = "";
+
+  if (activeDownloadEntries.length > 0 || rawStatus === "download") {
+    status = "download";
+    stepLabel = aggregateDetail
+      ? `Downloading model files (${aggregateDetail})`
+      : "Downloading model files";
+  } else if (rawStatus === "done") {
+    status = "loading";
+    stepLabel = aggregateDetail
+      ? `Finalizing model (${aggregateDetail})`
+      : "Finalizing model";
+  } else if (rawStatus === "ready") {
+    status = "loading";
+    stepLabel = "Preparing runtime";
+  } else if (rawStatus === "loading") {
+    stepLabel = "Preparing runtime";
+  } else if (rawStatus === "initiate" || rawStatus === "init") {
+    stepLabel = "Starting model load";
+  } else {
+    const fallbackSource = source || modelId || "model";
+    stepLabel = `${rawStatus.charAt(0).toUpperCase()}${rawStatus.slice(1)} ${fallbackSource}`.trim();
   }
 
-  if (!label && status === "ready") {
-    label = "Preparing runtime";
+  let visibleProgress = aggregateProgress;
+
+  // Keep final runtime preparation visually distinct from true completion.
+  // The load is not actually done until LOAD_COMPLETE arrives from the worker.
+  if (status === "loading" && visibleProgress >= 1) {
+    visibleProgress = 0.99;
   }
 
-  if (!label && (status === "initiate" || status === "init")) {
-    label = `Starting ${source}`;
+  return {
+    file: activeDownloadEntries[0]?.source || source,
+    loaded: aggregateLoaded,
+    progress: visibleProgress,
+    status,
+    stepId: aggregateTotal > 0
+      ? `${status}:${Math.round(aggregateLoaded)}:${Math.round(aggregateTotal)}`
+      : `${status}:${source}`,
+    stepLabel,
+    total: aggregateTotal
+  };
+}
+
+function flushLoadProgressTracker(tracker, requestId, modelId = "") {
+  if (!tracker || currentLoadProgressTracker !== tracker) {
+    return;
   }
 
-  if (!label && status === "loading") {
-    label = `Loading ${source}`;
+  clearLoadProgressTrackerTimer(tracker);
+
+  if (currentLoadRequestId !== requestId || !tracker.lastReport) {
+    return;
   }
 
-  if (!label) {
-    label = `${status.charAt(0).toUpperCase()}${status.slice(1)} ${source}`.trim();
+  postMessageToHost(WORKER_OUTBOUND.LOAD_PROGRESS, {
+    report: summarizeLoadProgress(tracker, tracker.lastReport, modelId),
+    requestId
+  });
+}
+
+function scheduleLoadProgressTrackerFlush(tracker, requestId, modelId = "") {
+  if (!tracker || currentLoadProgressTracker !== tracker || tracker.timerId) {
+    return;
   }
 
-  return detail ? `${label} (${detail})` : label;
+  tracker.timerId = setTimeout(() => {
+    flushLoadProgressTracker(tracker, requestId, modelId);
+  }, LOAD_PROGRESS_EMIT_INTERVAL_MS);
 }
 
 function extractFirstSequenceLength(inputIds) {
@@ -408,6 +533,7 @@ async function handleLoadModel(payload = {}) {
   }
 
   currentLoadRequestId = requestId;
+  currentLoadProgressTracker = createLoadProgressTracker();
   generator = null;
   tokenizer = null;
   currentModelId = "";
@@ -432,19 +558,8 @@ async function handleLoadModel(payload = {}) {
         return;
       }
 
-      postMessageToHost(WORKER_OUTBOUND.LOAD_PROGRESS, {
-        report: {
-          file: String(report?.file || ""),
-          loaded: Number(report?.loaded || 0),
-          name: String(report?.name || modelId),
-          progress: normalizeProgressValue(report),
-          status: normalizeProgressStatus(report),
-          stepId: formatProgressStepId(report, modelId),
-          stepLabel: formatProgressStep(report, modelId),
-          total: Number(report?.total || 0)
-        },
-        requestId
-      });
+      updateLoadProgressTracker(currentLoadProgressTracker, report, modelId);
+      scheduleLoadProgressTrackerFlush(currentLoadProgressTracker, requestId, modelId);
     };
 
     postTrace("pipeline-load:start", {
@@ -456,6 +571,7 @@ async function handleLoadModel(payload = {}) {
       dtype,
       progress_callback
     });
+    flushLoadProgressTracker(currentLoadProgressTracker, requestId, modelId);
     tokenizer = generator?.tokenizer || null;
     postTrace("pipeline-load:done", {
       dtype,
@@ -477,6 +593,8 @@ async function handleLoadModel(payload = {}) {
     });
     return;
   } catch (error) {
+    disposeLoadProgressTracker(currentLoadProgressTracker);
+    currentLoadProgressTracker = null;
     generator = null;
     tokenizer = null;
     currentModelId = "";
@@ -488,6 +606,8 @@ async function handleLoadModel(payload = {}) {
       requestId
     });
   } finally {
+    disposeLoadProgressTracker(currentLoadProgressTracker);
+    currentLoadProgressTracker = null;
     currentLoadRequestId = "";
   }
 }
@@ -538,6 +658,20 @@ async function handleRunChat(payload = {}) {
     const runtimeModule = await ensureRuntimeModule();
     const { StoppingCriteria, TextStreamer } = runtimeModule;
     const { promptTokenCount } = await prepareInputs(payload.messages);
+    const requestOptions =
+      payload.requestOptions && typeof payload.requestOptions === "object" && !Array.isArray(payload.requestOptions)
+        ? { ...payload.requestOptions }
+        : {};
+    const maxNewTokens = normalizeMaxNewTokens(
+      requestOptions.max_new_tokens ?? requestOptions.maxNewTokens ?? payload.maxNewTokens
+    );
+    delete requestOptions.max_new_tokens;
+    delete requestOptions.maxNewTokens;
+
+    if (!Object.hasOwn(requestOptions, "do_sample")) {
+      requestOptions.do_sample = Object.hasOwn(requestOptions, "temperature") || Object.hasOwn(requestOptions, "top_p");
+    }
+
     const startedAt = performance.now();
     let timeToFirstTokenMs = null;
     let streamedText = "";
@@ -557,18 +691,82 @@ async function handleRunChat(payload = {}) {
     class WorkerTextStreamer extends TextStreamer {
       constructor(localTokenizer, onText) {
         super(localTokenizer, {
+          callback_function() {},
           skip_prompt: true,
           skip_special_tokens: true
         });
         this.onText = onText;
       }
 
-      on_finalized_text(text) {
-        if (!text) {
+      put(value) {
+        if (value.length > 1) {
+          throw Error("WorkerTextStreamer only supports batch size of 1");
+        }
+
+        const isPrompt = this.next_tokens_are_prompt;
+
+        if (isPrompt) {
+          this.next_tokens_are_prompt = false;
+
+          if (this.skip_prompt) {
+            return;
+          }
+        }
+
+        const tokens = value[0];
+        this.token_callback_function?.(tokens);
+
+        if (tokens.length === 1 && this.special_ids.has(tokens[0])) {
+          if (this.decode_kwargs.skip_special_tokens) {
+            return;
+          }
+
+          if (this.token_cache.length > 0) {
+            const cachedText = this.tokenizer.decode(this.token_cache, this.decode_kwargs);
+            const cachedDelta = cachedText.slice(this.print_len);
+
+            if (cachedDelta) {
+              this.onText(cachedDelta);
+            }
+
+            this.token_cache = [];
+            this.print_len = 0;
+          }
+
+          const specialText = this.tokenizer.decode(tokens, this.decode_kwargs);
+
+          if (specialText) {
+            this.onText(specialText);
+          }
+
           return;
         }
 
-        this.onText(text);
+        this.token_cache.push(...tokens);
+        const text = this.tokenizer.decode(this.token_cache, this.decode_kwargs);
+        const printableText = text.slice(this.print_len);
+
+        if (!printableText) {
+          return;
+        }
+
+        this.print_len += printableText.length;
+        this.onText(printableText);
+      }
+
+      end() {
+        if (this.token_cache.length > 0) {
+          const text = this.tokenizer.decode(this.token_cache, this.decode_kwargs);
+          const printableText = text.slice(this.print_len);
+
+          if (printableText) {
+            this.onText(printableText);
+          }
+        }
+
+        this.token_cache = [];
+        this.print_len = 0;
+        this.next_tokens_are_prompt = true;
       }
     }
 
@@ -588,8 +786,8 @@ async function handleRunChat(payload = {}) {
     });
 
     const outputs = await generator(payload.messages, {
-      do_sample: false,
-      max_new_tokens: normalizeMaxNewTokens(payload.maxNewTokens),
+      ...requestOptions,
+      max_new_tokens: maxNewTokens,
       stopping_criteria: stoppingCriteria,
       streamer
     });

@@ -137,12 +137,14 @@ Current usage:
 
 - `node space serve`
 - `node space serve --host 0.0.0.0 --port 3000`
+- `node space serve PORT=0`
 - `node space serve PORT=3100 ALLOW_GUEST_USERS=false`
 
 Guidance:
 
 - keep `serve` focused on process startup and bootstrap overrides
 - keep `--host` and `--port` as aliases of the shared `HOST` and `PORT` runtime parameters
+- keep `PORT=0` available as the explicit OS-assigned free-port mode used by the desktop host and other ephemeral local-runtime flows
 - do not move application behavior into the command when it belongs in `server/`
 
 ### `help`

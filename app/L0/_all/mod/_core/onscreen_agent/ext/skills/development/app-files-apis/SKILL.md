@@ -38,7 +38,7 @@ When a UI needs user-visible download failure feedback without fetching the arch
 - Use permission-aware APIs, not ad hoc browser path guesses.
 - Use `space.api.call("file_paths", { method: "POST", body: { patterns: [...] } })` for indexed glob discovery.
 - Use `space.api.call("module_list", ...)` only when you need module inventory metadata rather than raw file paths.
-- Use `space.api.call("extensions_load", ...)` only when you are working on framework-level extension resolution behavior.
+- Use `space.api.call("extensions_load", ...)` when the browser needs module-owned `ext/...` assets resolved with layered override behavior, such as HTML adapters, JS hooks, or the dashboard's `ext/pages/*.yaml` page manifests.
 
 ## Storage Rules
 
@@ -59,6 +59,8 @@ When a UI needs user-visible download failure feedback without fetching the arch
 
 - This skill is for consuming backend APIs from the frontend.
 - Do not change backend handlers from this skill set; load `development/backend-reference` when you need the read-only backend model behind these APIs.
+- Prefer frontend logic plus existing `space.api` helpers over asking for new backend endpoints.
+- Ask for backend permission only when the browser cannot safely enforce the required security, integrity, cross-user, or stability boundary on its own.
 
 ## Mandatory Doc Follow-Up
 

@@ -1,7 +1,9 @@
 export const DEFAULT_SYSTEM_PROMPT = "You are a helpful assistant.";
 export const DEFAULT_DTYPE = "q4";
-export const DEFAULT_MAX_NEW_TOKENS = 256;
+export const DEFAULT_MAX_NEW_TOKENS = 16384;
 export const COMPATIBLE_MODELS_URL = "https://huggingface.co/onnx-community/models";
+export const HUGGINGFACE_SAVED_MODELS_STORAGE_KEY = "space.huggingface.saved-models";
+export const HUGGINGFACE_BROWSER_CACHE_KEY = "transformers-cache";
 
 export const DTYPE_OPTIONS = [
   { label: "q4", value: "q4" },
@@ -67,7 +69,7 @@ export function normalizeMaxNewTokens(value) {
     return DEFAULT_MAX_NEW_TOKENS;
   }
 
-  return Math.max(1, Math.min(4096, Math.round(parsedValue)));
+  return Math.max(1, Math.min(16384, Math.round(parsedValue)));
 }
 
 export function validateModelSelection(selection = {}) {
@@ -112,6 +114,114 @@ export function mergeSavedModelEntries(existingEntries = [], nextEntry) {
     .filter((entry) => !(entry?.modelId === nextEntry.modelId && entry?.dtype === nextEntry.dtype));
 
   return [nextEntry, ...filteredEntries].slice(0, 16);
+}
+
+export function removeSavedModelEntries(existingEntries = [], selection = {}, options = {}) {
+  const modelId = normalizeHuggingFaceModelInput(selection.modelId || selection.modelInput);
+  const dtype = sanitizeText(selection.dtype || DEFAULT_DTYPE) || DEFAULT_DTYPE;
+  const removeAllDtypesForModel = options.removeAllDtypesForModel !== false;
+
+  return (Array.isArray(existingEntries) ? existingEntries : [])
+    .filter((entry) => {
+      if (entry?.modelId !== modelId) {
+        return true;
+      }
+
+      if (removeAllDtypesForModel) {
+        return false;
+      }
+
+      return entry?.dtype !== dtype;
+    })
+    .map((entry) => createSavedModelEntry(entry))
+    .filter(Boolean);
+}
+
+export function getSavedModelEntryKey(selection = {}) {
+  const modelId = normalizeHuggingFaceModelInput(selection.modelId || selection.modelInput);
+  const dtype = sanitizeText(selection.dtype || DEFAULT_DTYPE) || DEFAULT_DTYPE;
+
+  if (!modelId) {
+    return "";
+  }
+
+  return `${modelId}:${dtype}`;
+}
+
+function getCacheMatchPrefixes(modelId) {
+  const normalizedModelId = normalizeHuggingFaceModelInput(modelId);
+  if (!normalizedModelId) {
+    return [];
+  }
+
+  return [
+    new URL(`${normalizedModelId}/resolve/`, "https://huggingface.co/").href,
+    new URL(`${normalizedModelId}/resolve/`, "https://www.huggingface.co/").href,
+    new URL(`${normalizedModelId}/resolve/`, "https://hf.co/").href
+  ];
+}
+
+export async function discardCachedModelEntries(modelId) {
+  const normalizedModelId = normalizeHuggingFaceModelInput(modelId);
+  if (!normalizedModelId) {
+    return {
+      deletedCount: 0,
+      modelId: ""
+    };
+  }
+
+  if (typeof globalThis.caches?.open !== "function") {
+    throw new Error("Browser cache access is unavailable in this context.");
+  }
+
+  const cache = await globalThis.caches.open(HUGGINGFACE_BROWSER_CACHE_KEY);
+  const requests = await cache.keys();
+  const prefixes = getCacheMatchPrefixes(normalizedModelId);
+  let deletedCount = 0;
+
+  for (const request of requests) {
+    const requestUrl = String(request?.url || "");
+    if (!requestUrl || !prefixes.some((prefix) => requestUrl.startsWith(prefix))) {
+      continue;
+    }
+
+    if (await cache.delete(request)) {
+      deletedCount += 1;
+    }
+  }
+
+  return {
+    deletedCount,
+    modelId: normalizedModelId
+  };
+}
+
+export function readSavedModelEntries() {
+  try {
+    const rawValue = globalThis.localStorage?.getItem(HUGGINGFACE_SAVED_MODELS_STORAGE_KEY);
+    if (!rawValue) {
+      return [];
+    }
+
+    const parsedValue = JSON.parse(rawValue);
+    if (!Array.isArray(parsedValue)) {
+      return [];
+    }
+
+    return parsedValue
+      .map((entry) => createSavedModelEntry(entry))
+      .filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
+export function persistSavedModelEntries(entries) {
+  try {
+    globalThis.localStorage?.setItem(HUGGINGFACE_SAVED_MODELS_STORAGE_KEY, JSON.stringify(Array.isArray(entries) ? entries : []));
+  } catch {
+    // Ignore storage failures in restricted browser contexts.
+  }
 }
 
 export function createChatMessage(role, content = "") {

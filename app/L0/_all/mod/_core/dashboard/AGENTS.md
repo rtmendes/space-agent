@@ -26,7 +26,8 @@ Current route contract:
 Current extension seams:
 
 - `_core/dashboard/content_start`: content injected directly below the dashboard heading
-- `_core/dashboard/content_end`: content injected after the first dashboard section
+- `_core/dashboard/content_middle`: main dashboard sections injected between the top and bottom dashboard stacks
+- `_core/dashboard/content_end`: lower dashboard sections injected after the main dashboard sections
 
 Rules:
 
@@ -34,6 +35,7 @@ Rules:
 - dashboard should not import feature-specific state or persistence helpers directly when the extension system can own the composition
 - dashboard should keep its own styling minimal so injected modules can own the richer UI below
 - on desktop and tablet widths, the dashboard shell should keep broad side gutters of about `8em` instead of collapsing early, so injected controls do not collide with fixed global overlay chrome near the viewport edges
+- ordering between dashboard sections should be expressed with explicit seams here rather than relying on same-anchor extension filename order
 
 ## Development Guidance
 

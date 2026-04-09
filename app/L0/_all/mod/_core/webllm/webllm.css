@@ -1,5 +1,7 @@
 .webllm-page {
   display: grid;
+  box-sizing: border-box;
+  grid-template-rows: minmax(0, 1fr);
   gap: 1rem;
   padding: 1rem;
   min-height: calc(100dvh - 3rem);
@@ -144,6 +146,7 @@
 
 .webllm-layout > * {
   min-width: 0;
+  min-height: 0;
 }
 
 .webllm-config-card,
@@ -551,16 +554,20 @@
     height: calc(100dvh - 3rem);
     min-height: calc(100dvh - 3rem);
     align-content: stretch;
+    overflow: hidden;
   }
 
   .webllm-layout {
     height: 100%;
+    min-height: 0;
     align-items: stretch;
+    overflow: hidden;
   }
 
   .webllm-config-card,
   .webllm-chat-card {
     height: 100%;
+    min-height: 0;
   }
 
   .webllm-config-card {
@@ -570,15 +577,21 @@
 
   .webllm-chat-card {
     grid-template-rows: auto auto minmax(0, 1fr) auto;
+    overflow: hidden;
   }
 
   .webllm-browser-block--models {
+    min-height: 0;
+    overflow: hidden;
     grid-template-rows: auto auto auto minmax(0, 1fr);
   }
 
   .webllm-browser-block--models .webllm-catalog-list {
+    height: 100%;
     min-height: 0;
     max-height: none;
+    overflow: auto;
+    overscroll-behavior: contain;
   }
 
   .webllm-thread {

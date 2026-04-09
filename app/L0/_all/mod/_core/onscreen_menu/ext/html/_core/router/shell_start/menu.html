@@ -33,17 +33,23 @@
       this.isOpen = false;
       this.navigateTop(adminUrl.href);
     },
-    openDashboard() {
-      const dashboardUrl = new URL(window.location.pathname + window.location.search, window.location.origin);
-      dashboardUrl.hash = '/dashboard';
+    openRoute(routeHash) {
+      const routeUrl = new URL(window.location.pathname + window.location.search, window.location.origin);
+      routeUrl.hash = routeHash;
       this.isOpen = false;
 
       if (this.isEmbeddedInsideAdmin()) {
-        this.navigateCurrent(dashboardUrl.href);
+        this.navigateCurrent(routeUrl.href);
         return;
       }
 
-      this.navigateTop(dashboardUrl.href);
+      this.navigateTop(routeUrl.href);
+    },
+    openDashboard() {
+      this.openRoute('/dashboard');
+    },
+    openAgent() {
+      this.openRoute('/agent');
     },
     openLeave() {
       this.isOpen = false;
@@ -90,6 +96,15 @@
       >
         <x-icon>space_dashboard</x-icon>
         <span class="space-topbar-menu-action-label">Dashboard</span>
+      </button>
+      <button
+        type="button"
+        class="space-topbar-menu-action"
+        role="menuitem"
+        @click="openAgent()"
+      >
+        <x-icon>smart_toy</x-icon>
+        <span class="space-topbar-menu-action-label">Agent</span>
       </button>
       <button
         type="button"

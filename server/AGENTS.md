@@ -6,6 +6,13 @@
 
 It should not become the main application runtime. Keep browser concerns in `app/` and keep this tree focused on explicit infrastructure contracts that the browser or CLI needs.
 
+Backend changes are exceptional in this project:
+
+- do not edit `server/` unless the user explicitly asked for backend work or later approves it after an explanation
+- frontend-first is the default even when a backend solution might look more conventional
+- backend work is justified only when security, shared-data integrity, multi-user isolation, or runtime-stability requirements cannot be trusted to browser code alone
+- when backend work is needed without an explicit backend request, stop and ask the user for permission, explain why the behavior is non-standard here, and describe the narrow server change required
+
 This is one of the five core docs. It owns server-wide responsibilities, request flow, and infrastructure boundaries. Detailed subsystem contracts belong in deeper docs inside `server/`.
 
 Documentation is top priority for this area. After any change under `server/` or any server contract change owned here, update this file, the closest owning subsystem `AGENTS.md` files, and the relevant supplemental docs under `app/L0/_all/mod/_core/documentation/docs/` in the same session before finishing.
@@ -119,7 +126,7 @@ Core runtime contracts:
 - `/login` stays the public password-login entry
 - `/enter` is the firmware-backed launcher route for launcher-eligible sessions: always in single-user runtime, and also for authenticated multi-user requests; unauthenticated multi-user requests are redirected to `/login`
 - launcher-eligible requests route new tabs and windows through `/enter` by a server-injected page-shell guard on `/` and `/admin`, while reloads in the same tab keep their current target
-- `HOST` and `PORT` come from the same runtime-parameter system as other server params instead of a special-case startup path
+- `HOST` and `PORT` come from the same runtime-parameter system as other server params instead of a special-case startup path; `PORT=0` is valid when a caller wants the OS to assign a free port, and the started runtime object must publish the resolved bound `port` and `browserUrl` after `listen()`
 - `/api/proxy`, `/mod/...`, and direct app-file fetches require an authenticated session unless an endpoint explicitly opts into anonymous access
 - `/mod/...` resolution uses the layered customware model and honors `maxLayer`, which defaults to `2`
 - `/admin` requests effectively force `maxLayer=0` for module and extension resolution through explicit request data, query parameters, or admin-origin fallback
@@ -194,4 +201,5 @@ Detailed endpoint behavior now lives in `server/api/AGENTS.md`.
 - keep inheritance resolution explicit and small
 - keep new persistence APIs explicit, small, and integrity-safe
 - do not move browser-side agent logic onto the server by default
+- reject backend convenience changes that merely duplicate frontend orchestration or UI workflow logic
 - when server responsibilities, request flow, API contracts, watched-file behavior, or persistence architecture change, update this file and the owning subsystem docs in the same session

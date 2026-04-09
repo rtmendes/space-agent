@@ -206,6 +206,7 @@ function formatDownloadErrorMessage(entry, error) {
 const filesModel = {
   actionMenuAnchor: null,
   actionMenuPosition: createActionMenuPosition(),
+  actionMenuRenderToken: 0,
   actionMenuSource: null,
   clipboardExpanded: false,
   clipboardItems: [],
@@ -460,6 +461,7 @@ const filesModel = {
   },
 
   closeActionMenu() {
+    this.actionMenuRenderToken += 1;
     this.actionMenuAnchor = null;
     this.actionMenuPosition = createActionMenuPosition();
     this.actionMenuSource = null;
@@ -734,11 +736,25 @@ const filesModel = {
   },
 
   openActionMenu(source, anchor) {
+    this.actionMenuRenderToken += 1;
+    const renderToken = this.actionMenuRenderToken;
     this.actionMenuAnchor = anchor || null;
     this.actionMenuSource = source || null;
 
     globalThis.requestAnimationFrame(() => {
+      if (!this.isActionMenuOpen || this.actionMenuRenderToken !== renderToken) {
+        return;
+      }
+
       this.positionActionMenu();
+
+      globalThis.requestAnimationFrame(() => {
+        if (!this.isActionMenuOpen || this.actionMenuRenderToken !== renderToken) {
+          return;
+        }
+
+        this.positionActionMenu();
+      });
     });
   },
 

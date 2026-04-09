@@ -49,6 +49,14 @@ The browser app is the primary runtime. The Node.js side exists as thin infrastr
 - server-owned APIs and other narrow infrastructure contracts
 - local development and optional desktop hosting
 
+Default architecture rule:
+
+- prefer frontend changes over backend changes
+- treat backend edits as exceptional, not routine
+- only move work into `server/`, `commands/`, or `packaging/` when the behavior must be backend-owned for security, integrity, multi-user isolation, or runtime stability and cannot be safely enforced in the browser
+- if backend work is needed and the user did not explicitly ask for it, stop and ask for permission before editing backend files
+- when asking for that permission, explain that backend work is non-standard for this project, describe the risk that makes frontend-only work insufficient, and state the narrow backend change you need
+
 Implement only what the user explicitly asked for. Do not invent new features, policies, cleanup behavior, or product changes on your own. If a request would require a new behavior or policy that the user did not ask for, stop and ask first.
 
 The five core documentation files remain the project's primary instruction set:
@@ -82,6 +90,8 @@ These rules apply across the codebase:
 - some legacy CommonJS still exists in the repository; treat it as migration debt, not as a pattern to copy
 - keep as much agent logic in the browser as possible
 - treat the server as infrastructure, not as the main application runtime
+- do not move work to the backend for convenience, symmetry, or habit when the frontend can own it safely
+- backend ownership is reserved for security-sensitive enforcement, integrity boundaries, cross-user effects, or runtime-stability concerns that a malicious or buggy frontend could bypass
 - prefer explicit, small contracts between browser and server
 - prefer maintainable filesystem structure over clever routing shortcuts
 

@@ -1,55 +1,16 @@
 import {
   buildChatMessages,
-  COMPATIBLE_MODELS_URL,
   createChatMessage,
-  createSavedModelEntry,
-  DEFAULT_DTYPE,
-  DEFAULT_MAX_NEW_TOKENS,
   DEFAULT_SYSTEM_PROMPT,
-  describeModelSelection,
   DTYPE_OPTIONS,
   formatDurationSeconds,
   formatNumber,
-  formatTokenRate,
-  mergeSavedModelEntries,
-  normalizeHuggingFaceModelInput,
-  normalizeMaxNewTokens,
-  normalizeUsageMetrics,
-  validateModelSelection
+  formatTokenRate
 } from "/mod/_core/huggingface/helpers.js";
-import { WORKER_INBOUND, WORKER_OUTBOUND } from "/mod/_core/huggingface/protocol.js";
+import { getHuggingFaceManager, isHuggingFaceAbortError } from "/mod/_core/huggingface/manager.js";
 
-const PERSISTED_MODEL_STORAGE_KEY = "space.huggingface.last-loaded-model";
-const SAVED_MODELS_STORAGE_KEY = "space.huggingface.saved-models";
-
-function logHuggingFaceConsoleError(label, details = {}, raw = null) {
-  if (raw != null) {
-    console.error(`[huggingface] ${label}`, details, raw);
-    return;
-  }
-
-  console.error(`[huggingface] ${label}`, details);
-}
-
-function teardownDeadWorker(store, workerInstance) {
-  if (store.worker !== workerInstance) {
-    return;
-  }
-
-  try {
-    workerInstance.terminate();
-  } catch {
-    // Ignore termination failures on already-dead workers.
-  }
-
-  store.worker = null;
-  store.isWorkerReady = false;
-  store.isLoadingModel = false;
-  store.pendingLoadRequestId = "";
-  store.queuedLoadSelection = null;
-  store.loadingModelLabel = "";
-  store.resetProgress();
-}
+const manager = getHuggingFaceManager();
+const initialManagerState = manager.getSnapshot();
 
 function updateMessageById(messages, messageId, updater) {
   return messages.map((message) => {
@@ -63,124 +24,26 @@ function updateMessageById(messages, messageId, updater) {
   });
 }
 
-function readPersistedModelSelection() {
-  try {
-    const rawValue = globalThis.localStorage?.getItem(PERSISTED_MODEL_STORAGE_KEY);
-    if (!rawValue) {
-      return null;
-    }
-
-    const parsedValue = JSON.parse(rawValue);
-    if (!parsedValue || typeof parsedValue !== "object") {
-      return null;
-    }
-
-    const modelId = normalizeHuggingFaceModelInput(parsedValue.modelId || parsedValue.modelInput);
-    if (!modelId) {
-      return null;
-    }
-
-    return {
-      dtype: String(parsedValue.dtype || DEFAULT_DTYPE).trim() || DEFAULT_DTYPE,
-      maxNewTokens: normalizeMaxNewTokens(parsedValue.maxNewTokens),
-      modelId,
-      modelInput: String(parsedValue.modelInput || modelId).trim() || modelId
-    };
-  } catch {
-    return null;
-  }
-}
-
-function persistModelSelection(selection) {
-  try {
-    if (!selection) {
-      globalThis.localStorage?.removeItem(PERSISTED_MODEL_STORAGE_KEY);
-      return;
-    }
-
-    globalThis.localStorage?.setItem(PERSISTED_MODEL_STORAGE_KEY, JSON.stringify(selection));
-  } catch {
-    // Ignore storage failures in restricted browser contexts.
-  }
-}
-
-function clearPersistedModelSelection() {
-  persistModelSelection(null);
-}
-
-function readSavedModels() {
-  try {
-    const rawValue = globalThis.localStorage?.getItem(SAVED_MODELS_STORAGE_KEY);
-    if (!rawValue) {
-      return [];
-    }
-
-    const parsedValue = JSON.parse(rawValue);
-    if (!Array.isArray(parsedValue)) {
-      return [];
-    }
-
-    return parsedValue
-      .map((entry) => createSavedModelEntry(entry))
-      .filter(Boolean);
-  } catch {
-    return [];
-  }
-}
-
-function persistSavedModels(entries) {
-  try {
-    globalThis.localStorage?.setItem(SAVED_MODELS_STORAGE_KEY, JSON.stringify(entries));
-  } catch {
-    // Ignore storage failures in restricted browser contexts.
-  }
-}
-
 const model = {
-  activeDtype: "",
-  activeModelId: "",
+  ...initialManagerState,
   draft: "",
-  error: "",
-  generationStartTimeMs: 0,
-  hasTriedPersistedReload: false,
-  isGenerating: false,
-  isLoadingModel: false,
-  isStopRequested: false,
-  isWorkerReady: false,
+  isRouteGenerating: false,
+  isRouteStopRequested: false,
   lastUsageMetrics: null,
-  lastWorkerTraceStage: "",
-  loadProgress: {
-    file: "",
-    progress: 0,
-    status: "",
-    stepKey: "",
-    stepLabel: ""
-  },
-  loadingModelLabel: "",
-  maxNewTokens: DEFAULT_MAX_NEW_TOKENS,
+  managerUnsubscribe: null,
   messages: [],
-  modelInput: "",
-  pendingAssistantMessageId: "",
-  pendingGenerateRequestId: "",
-  pendingLoadRequestId: "",
-  queuedLoadSelection: null,
   refs: {},
-  savedModels: readSavedModels(),
-  selectedDtype: DEFAULT_DTYPE,
   showAdvanced: false,
   showSystemPrompt: false,
-  statusText: "Starting Hugging Face worker...",
   systemPrompt: DEFAULT_SYSTEM_PROMPT,
-  webgpuSupported: Boolean(globalThis.navigator?.gpu),
-  worker: null,
-
-  get compatibleModelsUrl() {
-    return COMPATIBLE_MODELS_URL;
-  },
 
   get composerButtonText() {
+    if (this.isRouteGenerating) {
+      return this.isRouteStopRequested ? "Stopping..." : "Stop";
+    }
+
     if (this.isGenerating) {
-      return this.isStopRequested ? "Stopping..." : "Stop";
+      return "Busy";
     }
 
     return "Send";
@@ -191,8 +54,12 @@ const model = {
       return "Load a model, then send a message.";
     }
 
-    if (this.isGenerating) {
+    if (this.isRouteGenerating) {
       return "Generation in progress...";
+    }
+
+    if (this.isGenerating) {
+      return "Hugging Face runtime is busy...";
     }
 
     return `Send a test message to ${this.activeModelId}`;
@@ -207,7 +74,11 @@ const model = {
       return "Unavailable";
     }
 
-    if (!this.isWorkerReady && !this.isLoadingModel) {
+    if (this.error) {
+      return "Error";
+    }
+
+    if (this.isWorkerBooting && !this.isLoadingModel) {
       return "Starting";
     }
 
@@ -219,10 +90,6 @@ const model = {
       return "Ready";
     }
 
-    if (this.error) {
-      return "Error";
-    }
-
     return "Idle";
   },
 
@@ -231,16 +98,16 @@ const model = {
       return "is-error";
     }
 
-    if (!this.isWorkerReady || this.isLoadingModel) {
+    if (this.error) {
+      return "is-error";
+    }
+
+    if (this.isWorkerBooting || this.isLoadingModel) {
       return "is-loading";
     }
 
     if (this.activeModelId) {
       return "is-ready";
-    }
-
-    if (this.error) {
-      return "is-error";
     }
 
     return "is-idle";
@@ -258,6 +125,22 @@ const model = {
     return Boolean(this.activeModelId || this.isLoadingModel) && !this.isGenerating;
   },
 
+  get isComposerActionDisabled() {
+    if (this.isLoadingModel) {
+      return true;
+    }
+
+    if (this.isRouteGenerating) {
+      return false;
+    }
+
+    if (this.isGenerating) {
+      return true;
+    }
+
+    return !this.draft.trim();
+  },
+
   get loadProgressPercent() {
     return Math.max(0, Math.min(100, Math.round(Number(this.loadProgress.progress || 0) * 100)));
   },
@@ -266,529 +149,85 @@ const model = {
     return String(this.loadProgress.stepLabel || "").trim();
   },
 
+  applyManagerState(nextState = {}) {
+    Object.assign(this, nextState);
+  },
+
   mount(refs = {}) {
     this.refs = refs;
-    this.ensureWorker();
+
+    if (!this.managerUnsubscribe) {
+      this.managerUnsubscribe = manager.subscribe((nextState) => {
+        this.applyManagerState(nextState);
+      });
+    }
+
     this.syncComposerHeight();
+    void manager.ensureWorker().catch(() => {});
   },
 
   unmount() {
-    if (this.worker) {
-      this.worker.terminate();
-    }
-
+    this.managerUnsubscribe?.();
+    this.managerUnsubscribe = null;
     this.refs = {};
-    this.worker = null;
-    this.activeDtype = "";
-    this.activeModelId = "";
-    this.error = "";
-    this.hasTriedPersistedReload = false;
-    this.isGenerating = false;
-    this.isLoadingModel = false;
-    this.isStopRequested = false;
-    this.isWorkerReady = false;
-    this.lastWorkerTraceStage = "";
-    this.loadingModelLabel = "";
-    this.pendingAssistantMessageId = "";
-    this.pendingGenerateRequestId = "";
-    this.pendingLoadRequestId = "";
-    this.queuedLoadSelection = null;
-    this.resetProgress();
+    this.isRouteGenerating = false;
+    this.isRouteStopRequested = false;
   },
 
-  ensureWorker() {
-    if (this.worker) {
-      return;
-    }
-
-    const worker = new Worker(new URL("./huggingface-worker-bootstrap.js", import.meta.url), {
-      type: "module"
-    });
-
-    worker.addEventListener("message", (event) => {
-      this.handleWorkerMessage(event.data);
-    });
-    worker.addEventListener("error", (event) => {
-      logHuggingFaceConsoleError("Worker error", {
-        colno: event.colno,
-        error: event.error,
-        filename: event.filename,
-        isTrusted: event.isTrusted,
-        lastWorkerTraceStage: this.lastWorkerTraceStage,
-        lineno: event.lineno,
-        message: event.message,
-        type: event.type
-      }, event);
-      teardownDeadWorker(this, worker);
-      this.error = event.message
-        || (this.lastWorkerTraceStage
-          ? `The Hugging Face worker crashed during ${this.lastWorkerTraceStage}. Inspect the console for the raw worker event and trace logs.`
-          : "The Hugging Face worker failed before exposing a useful error message. Inspect the raw worker ErrorEvent in the console.");
-      this.statusText = "Worker startup failed.";
-    });
-    worker.addEventListener("messageerror", (event) => {
-      logHuggingFaceConsoleError("Worker message error", {
-        data: event.data,
-        isTrusted: event.isTrusted,
-        origin: event.origin,
-        type: event.type
-      }, event);
-      teardownDeadWorker(this, worker);
-    });
-
-    this.worker = worker;
-    worker.postMessage({
-      type: WORKER_INBOUND.BOOT
-    });
+  setModelInput(value) {
+    manager.setModelInput(value);
   },
 
-  resetProgress() {
-    this.loadProgress = {
-      file: "",
-      progress: 0,
-      status: "",
-      stepKey: "",
-      stepLabel: ""
-    };
+  setSelectedDtype(value) {
+    manager.setSelectedDtype(value);
   },
 
-  restartWorker(options = {}) {
-    const {
-      clearPersistedSelection = false,
-      keepLoadingState = false,
-      reboot = true,
-      statusText = ""
-    } = options;
-
-    if (this.worker) {
-      this.worker.terminate();
-    }
-
-    this.worker = null;
-    this.isWorkerReady = false;
-    this.pendingLoadRequestId = "";
-    this.pendingGenerateRequestId = "";
-    this.pendingAssistantMessageId = "";
-    this.isGenerating = false;
-    this.isStopRequested = false;
-    this.activeModelId = "";
-    this.activeDtype = "";
-
-    if (!keepLoadingState) {
-      this.isLoadingModel = false;
-      this.loadingModelLabel = "";
-      this.resetProgress();
-    }
-
-    if (clearPersistedSelection) {
-      clearPersistedModelSelection();
-    }
-
-    if (statusText) {
-      this.statusText = statusText;
-    }
-
-    if (reboot) {
-      this.ensureWorker();
-    }
-  },
-
-  handleWorkerMessage(message = {}) {
-    const payload = message.payload || {};
-
-    switch (message.type) {
-      case WORKER_OUTBOUND.READY: {
-        this.isWorkerReady = true;
-        this.webgpuSupported = payload.webgpuSupported !== false;
-
-        if (this.queuedLoadSelection) {
-          const queuedSelection = this.queuedLoadSelection;
-          this.queuedLoadSelection = null;
-          this.dispatchLoadModel(queuedSelection);
-          return;
-        }
-
-        this.statusText = this.webgpuSupported
-          ? "Enter a model id or Hub URL and load it."
-          : "WebGPU is unavailable in this browser context.";
-        this.restorePersistedModel();
-        break;
-      }
-
-      case WORKER_OUTBOUND.LOAD_PROGRESS: {
-        if (payload.requestId !== this.pendingLoadRequestId) {
-          return;
-        }
-
-        const nextStatus = String(payload.report?.status || "");
-        const nextFile = String(payload.report?.file || "");
-        const nextStepLabel = String(payload.report?.stepLabel || "");
-        const nextStepKey = String(payload.report?.stepId || `${nextStatus}:${nextFile}`);
-        const incomingProgress = Math.max(0.01, Number(payload.report?.progress || 0));
-        const isSameStep = nextStepKey && nextStepKey === this.loadProgress.stepKey;
-
-        this.loadProgress = {
-          file: nextFile,
-          progress: isSameStep ? Math.max(Number(this.loadProgress.progress || 0), incomingProgress) : incomingProgress,
-          status: nextStatus,
-          stepKey: nextStepKey,
-          stepLabel: nextStepLabel
-        };
-        this.statusText = this.loadStepLabel || "Loading model...";
-        break;
-      }
-
-      case WORKER_OUTBOUND.CONSOLE_ERROR: {
-        logHuggingFaceConsoleError("Forwarded worker console.error", {
-          args: Array.isArray(payload.args) ? payload.args : [],
-          currentDtype: payload.currentDtype,
-          currentModelId: payload.currentModelId,
-          loadRequestId: payload.loadRequestId,
-          timestamp: payload.timestamp
-        });
-        break;
-      }
-
-      case WORKER_OUTBOUND.TRACE: {
-        this.lastWorkerTraceStage = String(payload.stage || "");
-        console.log("[huggingface] Worker trace", {
-          currentDtype: payload.currentDtype,
-          currentModelId: payload.currentModelId,
-          requestId: payload.requestId,
-          stage: payload.stage,
-          timestamp: payload.timestamp
-        });
-        break;
-      }
-
-      case WORKER_OUTBOUND.LOAD_COMPLETE: {
-        if (payload.requestId !== this.pendingLoadRequestId) {
-          return;
-        }
-
-        this.isLoadingModel = false;
-        this.pendingLoadRequestId = "";
-        this.loadProgress = {
-          file: "",
-          progress: 1,
-          status: "done",
-          stepKey: "done",
-          stepLabel: "Model ready"
-        };
-        this.activeModelId = String(payload.modelId || "");
-        this.activeDtype = String(payload.dtype || this.selectedDtype || DEFAULT_DTYPE);
-        this.modelInput = this.activeModelId;
-        this.loadingModelLabel = "";
-        this.error = "";
-        this.statusText = `Loaded ${this.activeModelId}.`;
-        this.persistLoadedModel();
-        this.rememberLoadedModel();
-        break;
-      }
-
-      case WORKER_OUTBOUND.LOAD_ERROR: {
-        if (payload.requestId !== this.pendingLoadRequestId) {
-          return;
-        }
-
-        logHuggingFaceConsoleError("Model load failed", {
-          activeModelId: this.activeModelId,
-          error: payload.error,
-          loadProgress: this.loadProgress,
-          modelInput: this.modelInput,
-          requestId: payload.requestId,
-          selectedDtype: this.selectedDtype
-        });
-        this.isLoadingModel = false;
-        this.pendingLoadRequestId = "";
-        this.loadingModelLabel = "";
-        this.resetProgress();
-        this.error = payload.error?.message || "Model load failed.";
-        this.statusText = "Model load failed.";
-        break;
-      }
-
-      case WORKER_OUTBOUND.CHAT_DELTA: {
-        if (payload.requestId !== this.pendingGenerateRequestId || !this.pendingAssistantMessageId) {
-          return;
-        }
-
-        const nextText = String(payload.text || "");
-        this.messages = updateMessageById(this.messages, this.pendingAssistantMessageId, (messageRecord) => ({
-          ...messageRecord,
-          content: nextText,
-          isStreaming: true
-        }));
-        this.scheduleThreadScrollToBottom();
-        break;
-      }
-
-      case WORKER_OUTBOUND.INTERRUPT_ACK: {
-        if (payload.requestId !== this.pendingGenerateRequestId) {
-          return;
-        }
-
-        this.isStopRequested = true;
-        this.statusText = "Stopping generation...";
-        break;
-      }
-
-      case WORKER_OUTBOUND.CHAT_COMPLETE: {
-        if (payload.requestId !== this.pendingGenerateRequestId || !this.pendingAssistantMessageId) {
-          return;
-        }
-
-        const metrics = normalizeUsageMetrics(payload.metrics);
-
-        this.messages = updateMessageById(this.messages, this.pendingAssistantMessageId, (messageRecord) => ({
-          ...messageRecord,
-          content: String(payload.text || messageRecord.content || ""),
-          finishReason: String(payload.finishReason || "stop"),
-          isStreaming: false,
-          metrics,
-          modelId: String(payload.modelId || this.activeModelId || "")
-        }));
-        this.lastUsageMetrics = metrics;
-        this.isGenerating = false;
-        this.isStopRequested = false;
-        this.pendingAssistantMessageId = "";
-        this.pendingGenerateRequestId = "";
-        this.statusText = payload.finishReason === "abort" ? "Generation stopped." : "Reply complete.";
-        this.scheduleThreadScrollToBottom();
-        break;
-      }
-
-      case WORKER_OUTBOUND.CHAT_ERROR: {
-        if (payload.requestId !== this.pendingGenerateRequestId) {
-          return;
-        }
-
-        logHuggingFaceConsoleError("Chat generation failed", {
-          activeModelId: this.activeModelId,
-          error: payload.error,
-          messageCount: this.messages.length,
-          requestId: payload.requestId,
-          systemPromptLength: String(this.systemPrompt || "").length
-        });
-        if (this.pendingAssistantMessageId) {
-          this.messages = updateMessageById(this.messages, this.pendingAssistantMessageId, (messageRecord) => ({
-            ...messageRecord,
-            content: messageRecord.content || "Generation failed.",
-            finishReason: "error",
-            isStreaming: false
-          }));
-        }
-
-        this.error = payload.error?.message || "Generation failed.";
-        this.statusText = "Generation failed.";
-        this.isGenerating = false;
-        this.isStopRequested = false;
-        this.pendingAssistantMessageId = "";
-        this.pendingGenerateRequestId = "";
-        break;
-      }
-
-      default:
-        break;
-    }
-  },
-
-  buildRequestedSelection(overrides = {}) {
-    const modelInput = String(overrides.modelInput ?? this.modelInput).trim();
-    const modelId = normalizeHuggingFaceModelInput(overrides.modelId ?? modelInput);
-
-    return {
-      dtype: String(overrides.dtype ?? this.selectedDtype).trim() || DEFAULT_DTYPE,
-      maxNewTokens: normalizeMaxNewTokens(overrides.maxNewTokens ?? this.maxNewTokens),
-      modelId,
-      modelInput
-    };
-  },
-
-  dispatchLoadModel(selection) {
-    if (!this.worker) {
-      return;
-    }
-
-    this.pendingLoadRequestId = crypto.randomUUID();
-    this.isLoadingModel = true;
-    this.loadingModelLabel = describeModelSelection(selection);
-    this.error = "";
-    this.loadProgress = {
-      file: "",
-      progress: 0.01,
-      status: "queued",
-      stepKey: "queued",
-      stepLabel: "Queued"
-    };
-    this.modelInput = selection.modelInput || selection.modelId;
-    this.selectedDtype = selection.dtype;
-    this.maxNewTokens = selection.maxNewTokens;
-    this.statusText = `Loading ${this.loadingModelLabel}...`;
-
-    this.worker.postMessage({
-      payload: {
-        dtype: selection.dtype,
-        modelId: selection.modelId,
-        modelInput: selection.modelInput,
-        requestId: this.pendingLoadRequestId
-      },
-      type: WORKER_INBOUND.LOAD_MODEL
-    });
+  setMaxNewTokens(value) {
+    manager.setMaxNewTokens(value);
   },
 
   handleLoadModel(overrides = {}) {
-    if (!this.webgpuSupported) {
-      this.error = "WebGPU is unavailable in this browser context.";
-      return;
-    }
-
-    if (this.isGenerating) {
-      this.error = "Stop the current generation before loading another model.";
-      return;
-    }
-
-    const selection = this.buildRequestedSelection(overrides);
-    const validationError = validateModelSelection(selection);
-    if (validationError) {
-      this.error = validationError;
-      return;
-    }
-
-    this.error = "";
-    this.modelInput = selection.modelInput;
-    this.selectedDtype = selection.dtype;
-    this.maxNewTokens = selection.maxNewTokens;
-
-    if (!this.worker) {
-      this.queuedLoadSelection = selection;
-      this.isLoadingModel = true;
-      this.loadingModelLabel = describeModelSelection(selection);
-      this.loadProgress = {
-        file: "",
-        progress: 0.01,
-        status: "queued",
-        stepKey: "queued",
-        stepLabel: "Queued"
-      };
-      this.ensureWorker();
-      return;
-    }
-
-    if (!this.isWorkerReady) {
-      this.queuedLoadSelection = selection;
-      this.isLoadingModel = true;
-      this.loadingModelLabel = describeModelSelection(selection);
-      this.loadProgress = {
-        file: "",
-        progress: 0.01,
-        status: "queued",
-        stepKey: "queued",
-        stepLabel: "Queued"
-      };
-      return;
-    }
-
-    if (this.activeModelId || this.isLoadingModel) {
-      this.queuedLoadSelection = selection;
-      this.isLoadingModel = true;
-      this.loadingModelLabel = describeModelSelection(selection);
-      this.loadProgress = {
-        file: "",
-        progress: 0.01,
-        status: "queued",
-        stepKey: "queued",
-        stepLabel: "Queued"
-      };
-      this.restartWorker({
-        keepLoadingState: true,
-        statusText: `Loading ${this.loadingModelLabel}...`
-      });
-      return;
-    }
-
-    this.dispatchLoadModel(selection);
+    void manager.loadModel({
+      dtype: overrides.dtype ?? this.selectedDtype,
+      maxNewTokens: overrides.maxNewTokens ?? this.maxNewTokens,
+      modelInput: overrides.modelInput ?? this.modelInput
+    }).catch(() => {});
   },
 
   handleSavedModelAction(entry = {}) {
-    if (this.isActiveSavedModel(entry)) {
-      this.requestUnloadModel();
+    if (manager.isActiveSavedModel(entry)) {
+      void manager.unloadModel().catch(() => {});
       return;
     }
 
     this.handleLoadModel({
-      dtype: entry.dtype || DEFAULT_DTYPE,
+      dtype: entry.dtype || this.selectedDtype,
       modelInput: entry.modelInput || entry.modelId
     });
   },
 
   isActiveSavedModel(entry = {}) {
-    return entry?.modelId === this.activeModelId && entry?.dtype === this.activeDtype;
+    return manager.isActiveSavedModel(entry);
+  },
+
+  isDiscardingSavedModel(entry = {}) {
+    return manager.isDiscardingSavedModel(entry);
+  },
+
+  canDiscardSavedModel(entry = {}) {
+    return manager.canDiscardSavedModel(entry);
   },
 
   getSavedModelActionLabel(entry = {}) {
-    return this.isActiveSavedModel(entry) ? "Unload" : "Load";
+    return manager.getSavedModelActionLabel(entry);
+  },
+
+  requestDiscardSavedModel(entry = {}) {
+    void manager.discardSavedModel(entry).catch(() => {});
   },
 
   requestUnloadModel() {
-    if (!this.canUnloadActiveModel) {
-      return;
-    }
-
-    this.queuedLoadSelection = null;
-    this.error = "";
-    this.loadingModelLabel = "";
-    this.resetProgress();
-
-    const statusText = this.isLoadingModel ? "Model load stopped." : "Model unloaded.";
-
-    this.restartWorker({
-      clearPersistedSelection: true,
-      keepLoadingState: false,
-      statusText
-    });
-  },
-
-  persistLoadedModel() {
-    if (!this.activeModelId) {
-      return;
-    }
-
-    persistModelSelection({
-      dtype: this.activeDtype || this.selectedDtype || DEFAULT_DTYPE,
-      maxNewTokens: normalizeMaxNewTokens(this.maxNewTokens),
-      modelId: this.activeModelId,
-      modelInput: this.activeModelId
-    });
-  },
-
-  rememberLoadedModel() {
-    const nextEntry = createSavedModelEntry({
-      dtype: this.activeDtype || this.selectedDtype || DEFAULT_DTYPE,
-      modelId: this.activeModelId,
-      modelInput: this.activeModelId
-    });
-
-    if (!nextEntry) {
-      return;
-    }
-
-    this.savedModels = mergeSavedModelEntries(this.savedModels, nextEntry);
-    persistSavedModels(this.savedModels);
-  },
-
-  restorePersistedModel() {
-    if (this.hasTriedPersistedReload || !this.isWorkerReady || !this.webgpuSupported) {
-      return;
-    }
-
-    this.hasTriedPersistedReload = true;
-    const persistedSelection = readPersistedModelSelection();
-    if (!persistedSelection) {
-      return;
-    }
-
-    this.handleLoadModel(persistedSelection);
+    void manager.unloadModel().catch(() => {});
   },
 
   handleComposerInput(event) {
@@ -806,12 +245,21 @@ const model = {
   },
 
   handleComposerPrimaryAction() {
-    if (this.isGenerating) {
+    if (this.isRouteGenerating) {
       this.requestStop();
       return;
     }
 
     void this.sendMessage();
+  },
+
+  requestStop() {
+    if (!this.isRouteGenerating) {
+      return;
+    }
+
+    this.isRouteStopRequested = true;
+    manager.requestStop();
   },
 
   async sendMessage() {
@@ -821,8 +269,8 @@ const model = {
       return;
     }
 
-    if (!this.worker || !this.activeModelId) {
-      this.error = "Load a model before sending a message.";
+    if (!this.activeModelId) {
+      manager.setError("Load a model before sending a message.");
       return;
     }
 
@@ -834,50 +282,76 @@ const model = {
 
     this.messages = [...conversationMessages, assistantMessage];
     this.draft = "";
-    this.error = "";
-    this.isGenerating = true;
-    this.isStopRequested = false;
-    this.pendingAssistantMessageId = assistantMessage.id;
-    this.pendingGenerateRequestId = crypto.randomUUID();
-    this.generationStartTimeMs = Date.now();
-    this.statusText = `Generating with ${this.activeModelId}...`;
+    this.lastUsageMetrics = null;
+    this.isRouteGenerating = true;
+    this.isRouteStopRequested = false;
+    manager.setError("");
     this.syncComposerHeight();
     this.scheduleThreadScrollToBottom();
 
-    this.worker.postMessage({
-      payload: {
-        maxNewTokens: normalizeMaxNewTokens(this.maxNewTokens),
+    try {
+      const result = await manager.streamCompletion({
         messages: buildChatMessages(this.systemPrompt, conversationMessages),
-        requestId: this.pendingGenerateRequestId
-      },
-      type: WORKER_INBOUND.RUN_CHAT
-    });
-  },
+        onDelta: (delta) => {
+          assistantMessage.content += delta;
+          this.messages = updateMessageById(this.messages, assistantMessage.id, (message) => ({
+            ...message,
+            content: assistantMessage.content,
+            isStreaming: true
+          }));
+          this.scheduleThreadScrollToBottom();
+        },
+        requestOptions: {
+          max_new_tokens: this.maxNewTokens
+        }
+      });
 
-  requestStop() {
-    if (!this.worker || !this.pendingGenerateRequestId || this.isStopRequested) {
-      return;
+      this.messages = updateMessageById(this.messages, assistantMessage.id, (message) => ({
+        ...message,
+        content: String(result.text || message.content || ""),
+        finishReason: String(result.finishReason || "stop"),
+        isStreaming: false,
+        metrics: result.metrics || null,
+        modelId: String(result.modelId || this.activeModelId || "")
+      }));
+      this.lastUsageMetrics = result.metrics || null;
+    } catch (error) {
+      if (isHuggingFaceAbortError(error)) {
+        const abortedText = String(error.text || assistantMessage.content || "");
+
+        if (!abortedText.trim()) {
+          this.messages = this.messages.filter((message) => message.id !== assistantMessage.id);
+        } else {
+          this.messages = updateMessageById(this.messages, assistantMessage.id, (message) => ({
+            ...message,
+            content: abortedText,
+            finishReason: String(error.finishReason || "abort"),
+            isStreaming: false,
+            metrics: error.metrics || null,
+            modelId: String(error.modelId || this.activeModelId || "")
+          }));
+          this.lastUsageMetrics = error.metrics || null;
+        }
+      } else {
+        this.messages = updateMessageById(this.messages, assistantMessage.id, (message) => ({
+          ...message,
+          content: message.content || "Generation failed.",
+          finishReason: "error",
+          isStreaming: false
+        }));
+      }
+    } finally {
+      this.isRouteGenerating = false;
+      this.isRouteStopRequested = false;
+      this.scheduleThreadScrollToBottom();
     }
-
-    this.isStopRequested = true;
-    this.statusText = "Stopping generation...";
-    this.worker.postMessage({
-      payload: {
-        requestId: this.pendingGenerateRequestId
-      },
-      type: WORKER_INBOUND.INTERRUPT
-    });
   },
 
   clearChat() {
     this.draft = "";
     this.messages = [];
     this.lastUsageMetrics = null;
-    this.error = "";
-    this.pendingAssistantMessageId = "";
-    this.pendingGenerateRequestId = "";
-    this.isGenerating = false;
-    this.isStopRequested = false;
+    manager.setError("");
     this.syncComposerHeight();
   },
 

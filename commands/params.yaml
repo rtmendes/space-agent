@@ -7,9 +7,9 @@ HOST:
   default: 0.0.0.0
   frontend_exposed: false
 PORT:
-  description: TCP port the local server listens on.
+  description: TCP port the local server listens on. Set to 0 to let the OS assign a free port at startup.
   type: number
-  allowed: [1..65535]
+  allowed: [0..65535]
   default: 3000
   frontend_exposed: false
 CUSTOMWARE_PATH:

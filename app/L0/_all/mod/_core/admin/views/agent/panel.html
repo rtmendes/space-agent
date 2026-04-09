@@ -2,6 +2,8 @@
   <head>
     <link rel="stylesheet" href="/mod/_core/visual/index.css" />
     <link rel="stylesheet" href="/mod/_core/admin/views/agent/agent.css" />
+    <link rel="stylesheet" href="/mod/_core/huggingface/huggingface.css" />
+    <link rel="stylesheet" href="/mod/_core/webllm/webllm.css" />
     <script type="module" src="/mod/_core/admin/views/agent/store.js"></script>
   </head>
   <body>
@@ -190,10 +192,10 @@
                     <button
                       type="button"
                       class="secondary-button dialog-segmented-button"
-                      :class="{ 'is-active': $store.adminAgent.isSettingsDraftUsingWebLlmProvider }"
-                      @click="$store.adminAgent.setSettingsProvider('webllm')"
+                      :class="{ 'is-active': $store.adminAgent.isSettingsDraftUsingLocalProvider }"
+                      @click="$store.adminAgent.setSettingsProvider('local')"
                     >
-                      <span>Local WebLLM</span>
+                      <span>Local</span>
                     </button>
                   </div>
                   <div x-show="$store.adminAgent.isSettingsDraftUsingApiProvider" x-cloak>
@@ -210,63 +212,24 @@
                       <input type="password" x-model="$store.adminAgent.settingsDraft.apiKey" />
                     </label>
                   </div>
-                  <div x-show="$store.adminAgent.isSettingsDraftUsingWebLlmProvider" x-cloak>
-                    <p class="dialog-note admin-agent-webllm-disclaimer">
-                      WebLLM runs the model locally in this browser. It needs WebGPU, uses substantial GPU memory, and models must be downloaded first in WebLLM configuration before they can be selected here.
-                    </p>
+                  <div x-show="$store.adminAgent.isSettingsDraftUsingLocalProvider" x-cloak class="admin-agent-local-settings">
                     <label class="field">
-                      <span>Downloaded Model</span>
+                      <span>Local Runtime</span>
                       <select
-                        x-model="$store.adminAgent.settingsDraft.webllmModel"
-                        @change="$store.adminAgent.handleSettingsWebLlmModelDraftChange()"
+                        :value="$store.adminAgent.settingsDraft.localProvider"
+                        @change="$store.adminAgent.setSettingsLocalProvider($event.target.value)"
                       >
-                        <option value="">Select downloaded model</option>
-                        <template x-for="model in $store.adminAgent.webllmDownloadedModels" :key="model.model_id">
-                          <option :value="model.model_id" x-text="model.model_id"></option>
-                        </template>
+                        <option value="huggingface">HuggingFace ONNX</option>
+                        <option value="webllm">WebLLM</option>
                       </select>
-                      <p class="field-note" x-show="!$store.adminAgent.hasDownloadedWebllmModels">
-                        No downloaded WebLLM models were found in this browser yet.
-                      </p>
                     </label>
-                    <section class="admin-agent-webllm-status-card">
-                      <div class="admin-agent-webllm-status-row">
-                        <div>
-                          <p class="page-eyebrow">Local Model Status</p>
-                          <strong x-text="$store.adminAgent.webllmCurrentModelLabel"></strong>
-                        </div>
-                        <span
-                          class="admin-agent-webllm-badge"
-                          :class="`is-${$store.adminAgent.webllmStatusTone.replace('is-', '')}`"
-                          x-text="$store.adminAgent.webllmStatusBadgeText"
-                        ></span>
-                      </div>
-                      <template x-if="$store.adminAgent.webllm.isLoadingModel">
-                        <div class="admin-agent-webllm-progress">
-                          <div
-                            class="admin-agent-webllm-progress-track"
-                            role="progressbar"
-                            aria-label="WebLLM model loading progress"
-                            aria-valuemin="0"
-                            aria-valuemax="100"
-                            :aria-valuenow="$store.adminAgent.webllmLoadProgressPercent"
-                          >
-                            <div
-                              class="admin-agent-webllm-progress-fill"
-                              :style="`--admin-agent-webllm-progress-width: ${$store.adminAgent.webllmLoadProgressPercent}%`"
-                            ></div>
-                          </div>
-                          <p class="field-note" x-text="$store.adminAgent.webllmSelectedModelStatusText"></p>
-                        </div>
-                      </template>
-                      <template x-if="!$store.adminAgent.webllm.isLoadingModel">
-                        <p class="field-note" x-text="$store.adminAgent.webllmSelectedModelStatusText"></p>
-                      </template>
-                    </section>
-                    <div class="dialog-actions dialog-actions-start admin-agent-webllm-actions">
-                      <button type="button" class="secondary-button" @click="$store.adminAgent.openWebLlmConfiguration()">
-                        Open WebLLM Config
-                      </button>
+
+                    <div x-show="$store.adminAgent.isSettingsDraftUsingLocalHuggingFaceProvider" x-cloak class="admin-agent-local-provider-panel">
+                      <x-component path="/mod/_core/huggingface/config-sidebar.html" mode="admin"></x-component>
+                    </div>
+
+                    <div x-show="$store.adminAgent.isSettingsDraftUsingLocalWebLlmProvider" x-cloak class="admin-agent-local-provider-panel">
+                      <x-component path="/mod/_core/webllm/config-sidebar.html" mode="admin"></x-component>
                     </div>
                   </div>
                   <label class="field">

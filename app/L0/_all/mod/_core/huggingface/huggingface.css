@@ -344,6 +344,28 @@
   min-width: 5.6rem;
 }
 
+.huggingface-discard-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 2rem;
+  width: 2rem;
+  padding: 0;
+  border-color: var(--color-danger);
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--color-danger);
+}
+
+.huggingface-discard-button:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.huggingface-discard-button x-icon {
+  font-size: 1rem;
+  line-height: 1;
+  color: var(--color-danger);
+}
+
 .huggingface-progress-block {
   display: grid;
   gap: 0.3rem;

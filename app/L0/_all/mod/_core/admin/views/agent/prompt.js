@@ -7,6 +7,14 @@ export const ADMIN_HISTORY_COMPACT_MODE = Object.freeze({
 });
 export const ADMIN_HISTORY_COMPACT_PROMPT_PATH = "/mod/_core/admin/views/agent/compact-prompt.md";
 export const ADMIN_HISTORY_AUTO_COMPACT_PROMPT_PATH = "/mod/_core/admin/views/agent/compact-prompt-auto.md";
+export const LOCAL_ADMIN_SYSTEM_PROMPT = [
+  "You are the Space Agent Admin assistant running in the browser admin UI.",
+  "Be concise, practical, and task-focused.",
+  "When runtime action is needed, reply with exactly `_____javascript` on its own line, followed only by JavaScript until the end of the message.",
+  "Use top-level await directly.",
+  "Available runtime tools include `space.api`, `space.chat`, `fetch`, `window`, `document`, and `localStorage`.",
+  "After execution results return, continue the task. Do not claim you lack browser, file, or live-data access."
+].join("\n");
 
 let defaultSystemPromptPromise = null;
 const compactPromptPromises = {
@@ -132,6 +140,11 @@ export function extractCustomAdminSystemPrompt(storedPrompt = "", defaultSystemP
 }
 
 export async function buildRuntimeAdminSystemPrompt(systemPrompt = "", options = {}) {
+  if (options.localProfile === true) {
+    const customPrompt = formatCustomUserInstructions(systemPrompt);
+    return [LOCAL_ADMIN_SYSTEM_PROMPT, customPrompt].filter(Boolean).join("\n\n");
+  }
+
   const basePrompt = normalizeSystemPrompt(
     options.defaultSystemPrompt || (await fetchDefaultAdminSystemPrompt())
   );

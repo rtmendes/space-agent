@@ -64,6 +64,8 @@ Current repo-owned shared top-level skills include:
 
 Additional group-scoped skills may exist for narrower audiences.
 
+The first-party `development` tree is intentionally split into narrower nested skills. In particular, `development/modules-routing` now teaches custom routed pages as the main alternative to spaces when the user wants a reusable feature surface, and it may reference small importable helper scripts under the same module tree instead of pasting long browser snippets into the skill text.
+
 ## Documentation Skill And Helper
 
 Broad orientation starts in the top-level `documentation` skill:

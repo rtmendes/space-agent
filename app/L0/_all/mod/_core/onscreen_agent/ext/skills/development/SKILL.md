@@ -5,6 +5,8 @@ description: Frontend development router. Load deeper skills before editing
 
 Use this skill first for any development task. This is a routing skill: it tells you which deeper development skills to load next. Do not rely on this file alone as the full contract.
 
+When the user wants to extend the system with a reusable interface rather than a space widget, prefer a custom routed page module plus an optional `ext/pages/*.yaml` dashboard entry instead of pushing everything into spaces.
+
 ## Hard Boundary
 
 - This skill set only authorizes development in `app/`.
@@ -19,7 +21,7 @@ Use this skill first for any development task. This is a routing skill: it tells
 - `development/frontend-runtime`
   Load for framework-backed pages, Alpine stores, `space.*` runtime usage, shared visual rules, and general frontend structure.
 - `development/modules-routing`
-  Load for new routed modules, `view.html`, route paths, router anchors, and where first-party features live.
+  Load for new routed modules, `view.html`, route paths, router anchors, custom pages as an alternative to spaces, and where first-party features live.
 - `development/extensions-components`
   Load for `ext/html/`, `ext/js/`, `x-extension`, `x-component`, and override behavior.
 - `development/app-files-apis`
@@ -40,6 +42,13 @@ Use this skill first for any development task. This is a routing skill: it tells
 3. `await space.skills.load("development/extensions-components")`
 4. `await space.skills.load("development/frontend-runtime")`
 5. `await space.skills.load("development/app-files-apis")` if the feature stores user or group data
+
+### New custom page instead of a space
+
+1. `await space.skills.load("development/modules-routing")`
+2. `await space.skills.load("development/extensions-components")`
+3. `await space.skills.load("development/frontend-runtime")`
+4. `await space.skills.load("development/app-files-apis")` if the page needs frontend discovery of registered pages or other permission-aware app data
 
 ### New or updated chat-agent skill
 

@@ -25,6 +25,12 @@ When working:
 3. use these docs to orient quickly and find the right area
 4. inspect code for exact implementation details
 
+Apply the architecture bias while reading:
+
+- prefer frontend ownership by default
+- do not read backend reference docs as implicit permission to edit `server/`
+- if the docs show that a change must cross into backend-owned security or integrity behavior and the user did not ask for backend work, ask for permission before editing server files
+
 If this module and an `AGENTS.md` file disagree, the `AGENTS.md` file wins and this module must be updated.
 
 ## Helper Surface

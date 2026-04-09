@@ -27,6 +27,20 @@ function resolveBrowserHost(host) {
   return host;
 }
 
+function buildBrowserUrl(browserHost, port) {
+  return `http://${browserHost}:${port}`;
+}
+
+function resolveListeningPort(server, fallbackPort) {
+  const address = server.address();
+
+  if (address && typeof address === "object" && Number.isFinite(address.port)) {
+    return address.port;
+  }
+
+  return fallbackPort;
+}
+
 async function createAgentServer(overrides = {}) {
   const apiDir = overrides.apiDir || API_DIR;
   const appDir = overrides.appDir || APP_DIR;
@@ -60,7 +74,8 @@ async function createAgentServer(overrides = {}) {
     });
   const host = runtimeParams.get("HOST", "0.0.0.0");
   const browserHost = overrides.browserHost || resolveBrowserHost(host);
-  const port = Number(runtimeParams.get("PORT", 3000));
+  const configuredPort = Number(runtimeParams.get("PORT", 3000));
+  let activePort = configuredPort;
 
   ensureCustomwareDirectories(projectRoot, runtimeParams);
   ensureServerTmpDir(tmpDir);
@@ -90,7 +105,7 @@ async function createAgentServer(overrides = {}) {
     runtimeParams,
     watchdog,
     host,
-    port,
+    port: configuredPort,
     projectRoot
   });
   const server = http.createServer((req, res) => {
@@ -109,13 +124,13 @@ async function createAgentServer(overrides = {}) {
     });
   });
 
-  return {
+  const runtime = {
     apiDir,
     apiRegistry,
     appDir,
     browserHost,
     host,
-    port,
+    port: activePort,
     assetDir,
     pagesDir,
     auth,
@@ -124,7 +139,7 @@ async function createAgentServer(overrides = {}) {
     watchdog,
     runtimeParams,
     server,
-    browserUrl: `http://${browserHost}:${port}`,
+    browserUrl: buildBrowserUrl(browserHost, activePort),
     async listen() {
       tmpWatch.start();
 
@@ -136,25 +151,12 @@ async function createAgentServer(overrides = {}) {
 
         return await new Promise((resolve, reject) => {
           server.once("error", reject);
-          server.listen(port, host, () => {
+          server.listen(configuredPort, host, () => {
             server.removeListener("error", reject);
-            resolve({
-              apiDir,
-              apiRegistry,
-              appDir,
-              browserHost,
-              host,
-              port,
-              assetDir,
-              pagesDir,
-              auth,
-              tmpDir,
-              tmpWatch,
-              watchdog,
-              runtimeParams,
-              server,
-              browserUrl: `http://${browserHost}:${port}`
-            });
+            activePort = resolveListeningPort(server, configuredPort);
+            runtime.port = activePort;
+            runtime.browserUrl = buildBrowserUrl(browserHost, activePort);
+            resolve(runtime);
           });
         });
       } catch (error) {
@@ -179,6 +181,8 @@ async function createAgentServer(overrides = {}) {
       });
     }
   };
+
+  return runtime;
 }
 
 export { createAgentServer };

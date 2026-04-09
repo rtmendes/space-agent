@@ -18,6 +18,8 @@ The routed test page lives at:
 #/webllm
 ```
 
+This route is also advertised to the dashboard pages index through `_core/webllm/ext/pages/webllm.yaml`, using the shorthand manifest path `webllm`.
+
 This module is intentionally a manual browser-only test harness:
 
 - load a prebuilt WebLLM `model_id` or a custom model URL plus model library URL
@@ -28,7 +30,8 @@ This module is intentionally a manual browser-only test harness:
 - present the chat area as a `Testing chat` surface with an inline clear-chat action in the section heading
 - keep the route visually compact and low-chrome so more of the viewport is available for model controls and chat
 - show the current model and load state first in the sidebar, inside a slightly more prominent rounded panel with a compact status badge, an unload control beside the current model name that switches to `Stop` while a load is in flight, and auto-restore the last successful load on refresh in the same browser profile
-- on desktop, keep the route slightly shorter than the full viewport and let the model list absorb the remaining sidebar height above the advanced section so the list owns the primary scroll area
+- on desktop, keep the route slightly shorter than the full viewport, cap the routed surface itself to that height, and let the model list absorb the remaining sidebar height above the advanced section so the list and chat thread own the primary scroll areas instead of the whole page
+- keep that desktop height clamp local to the WebLLM page layout, matching the Hugging Face route pattern rather than relying on a router-level `data-route-path` height override
 - keep both the advanced custom-model form and the system-prompt editor collapsed by default so the main model list and chat stay dense
 
 It is not a second agent runtime. There is no tool execution, attachment handling, queued turn scheduler, or persisted chat history in this module.
@@ -39,12 +42,15 @@ It is not a second agent runtime. There is no tool execution, attachment handlin
 
 Ownership split:
 
+- `config-sidebar.html` owns the standalone model-loading sidebar component and is mounted by both `view.html` and the admin-agent local modal through `<x-component>`
 - `store.js` owns the routed page, Alpine store state, and worker lifecycle
 - `webllm-worker.js` owns `MLCEngine`, model reloads, streaming chat calls, and stop/reset actions
 - `protocol.js` owns the postMessage event names shared between the page and worker
 - `web-llm.js` is the vendored browser build of `@mlc-ai/web-llm`, kept local to the module instead of promoted into `_core/framework`
 
 That split keeps the route self-contained and avoids a repo-wide frontend dependency seam for an experimental test surface.
+
+In admin mode, that shared sidebar should show both the currently loaded model and the separately selected model so the admin selector does not look inert while a model is configured but not yet loaded.
 
 ## Model Loading Contract
 
@@ -67,6 +73,7 @@ Custom-load rules:
 - the routed page persists the last successfully loaded model config in browser storage and automatically reloads it on refresh
 - the advanced custom-model form is collapsed by default and its load action is isolated from the prebuilt model picker
 - arbitrary Hugging Face repo discovery is intentionally not exposed as a normal load path because official WebLLM custom loading still needs MLC/WebLLM-compiled artifacts plus a compatible `model_lib` wasm
+- the same `config-sidebar.html` file also has an `admin` mode used inside the admin agent's `Local > WebLLM` settings surface, where it renders the current-model block, the full prebuilt selector, direct download or load or unload actions, live progress, and a button that opens the full WebLLM testing chat route
 
 WebLLM itself owns browser-side downloads and caching. `_core/webllm` only forwards progress reports and load results into the route UI.
 

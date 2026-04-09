@@ -6,6 +6,8 @@ This doc covers how browser code is delivered and composed.
 
 - `app/AGENTS.md`
 - `app/L0/_all/mod/_core/framework/AGENTS.md`
+- `app/L0/_all/mod/_core/login_hooks/AGENTS.md`
+- `app/L0/_all/mod/_core/promptinclude/AGENTS.md`
 - `app/L0/_all/mod/_core/router/AGENTS.md`
 - `server/lib/customware/AGENTS.md`
 - `server/api/AGENTS.md`
@@ -20,6 +22,7 @@ mod/<author>/<repo>/...
 
 Examples:
 
+- `/mod/_core/agent/view.html`
 - `/mod/_core/framework/js/initFw.js`
 - `/mod/_core/router/view.html`
 - `/mod/_core/documentation/documentation.js`
@@ -34,6 +37,7 @@ The authenticated router is hash-based.
 
 Important route rules:
 
+- `#/agent` -> `/mod/_core/agent/view.html`
 - `#/dashboard` -> `/mod/_core/dashboard/view.html`
 - `#/huggingface` -> `/mod/_core/huggingface/view.html`
 - `#/webllm` -> `/mod/_core/webllm/view.html`
@@ -65,6 +69,10 @@ Important shared router seams include:
 - `page/router/overlay/start`
 - `page/router/overlay/end`
 
+Current first-party shell extension example:
+
+- `_core/onscreen_menu` mounts into `_core/router/shell_start` and owns the top-right routed page menu, which lists Dashboard then Agent then Admin plus auth-dependent Logout or Leave actions
+
 ## JavaScript Extension Hooks
 
 Behavior seams use `space.extend(import.meta, async function name() {})`.
@@ -76,6 +84,8 @@ Rules:
 - wrapped functions expose `/start` and `/end` hook points
 - framework-backed page boot exposes `_core/framework/initializer.js/initialize`; its `/end` hook is the normal place for once-per-page integrations such as analytics bootstrap or `document.head` tag setup
 - feature-specific prompt or execution behavior for the onscreen agent should be supplied from the owning module through `_core/onscreen_agent/...` extension seams, not hardcoded into `_core/onscreen_agent`
+- headless helper modules are valid first-party modules too: `_core/promptinclude` has no route or UI, but it extends `_core/onscreen_agent/llm.js/buildOnscreenAgentSystemPromptSections` and `_core/onscreen_agent/llm.js/buildOnscreenAgentTransientSections` to auto-inject readable `**/*.system.include.md` files into the overlay system prompt and readable `**/*.transient.include.md` files into the overlay transient context
+- `_core/login_hooks` is another headless helper module: it extends `_core/framework/initializer.js/initialize/end`, checks for the client-owned `~/meta/login_hooks.json` marker, dispatches `_core/login_hooks/first_login` once when that marker is absent, and dispatches `_core/login_hooks/any_login` when the authenticated shell was reached directly from `/login`
 
 Uncached HTML `<x-extension>` lookups are grouped before they hit `/api/extensions_load`:
 
@@ -84,6 +94,20 @@ Uncached HTML `<x-extension>` lookups are grouped before they hit `/api/extensio
 - when a frame does not arrive, the frontend falls back to a short timeout so the queue still drains
 
 JS hook lookups do not use that frame wait window. Hook callers await them directly, so the frontend requests JS extension paths immediately instead of delaying them for batching.
+
+## Extension Metadata Manifests
+
+Not every extension-resolved file is an HTML adapter or JS hook.
+
+Modules may also store lightweight metadata manifests under other `ext/` folders when that data should follow the same readable-layer permissions and same-path override rules as HTML and JS extensions.
+
+Current first-party example:
+
+- `_core/pages` discovers dashboard page manifests from `mod/<author>/<repo>/ext/pages/*.yaml` through `extensions_load`
+- `_core/agent` publishes `ext/pages/agent.yaml` so the dashboard can launch the routed agent settings page without hardcoding it into dashboard or router; that route stays self-contained inside the module, keeps the astronaut info card, exposes only the external repo CTA, and edits the raw `~/conf/personality.system.include.md` prompt-include file
+- each page manifest defines display metadata such as `name`, `path`, optional `description`, optional `icon`, and optional `color`
+- page `path` values may be shorthand route paths such as `webllm`, prefixed hash paths such as `#/webllm`, or direct `/mod/...` HTML paths such as `/mod/_core/webllm/view.html`
+- page manifests are module assets, not writable app-file state
 
 ## `<x-component>`
 
@@ -108,9 +132,9 @@ Heavy browser-only runtimes do not have to become global framework dependencies.
 
 Current first-party example:
 
-- `_core/huggingface` keeps its worker, local import shim, and the Transformers.js browser runtime contract inside one route-local module
+- `_core/huggingface` keeps its worker, vendored local import shim, and the Transformers.js browser runtime contract inside one module-local singleton manager that the routed page and admin modal can both import inside the same browser context
 - `_core/webllm` keeps the vendored WebLLM browser build and its dedicated worker inside the module
-- the routed page imports only its local store and talks to the worker through a small module-local protocol file
+- routed pages should keep page-local UI state in their own stores, but reusable browser-runtime ownership can sit in a module-local manager when multiple surfaces need one live state source
 - this is the preferred pattern for experimental routed test surfaces that need a large browser runtime but do not yet justify promotion into `_core/framework`
 
 ## Shared Visual Primitives

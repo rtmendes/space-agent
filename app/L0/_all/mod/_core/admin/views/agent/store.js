@@ -6,7 +6,12 @@ import * as prompt from "/mod/_core/admin/views/agent/prompt.js";
 import * as skills from "/mod/_core/admin/views/agent/skills.js";
 import * as storage from "/mod/_core/admin/views/agent/storage.js";
 import * as agentView from "/mod/_core/admin/views/agent/view.js";
+import {
+  mapManagerStateToAdminState
+} from "/mod/_core/admin/views/agent/huggingface.js";
 import { AdminAgentWebLlmRuntime } from "/mod/_core/admin/views/agent/webllm.js";
+import { DTYPE_OPTIONS, normalizeHuggingFaceModelInput } from "/mod/_core/huggingface/helpers.js";
+import { getHuggingFaceManager } from "/mod/_core/huggingface/manager.js";
 import { closeDialog, openDialog } from "/mod/_core/visual/forms/dialog.js";
 import { countTextTokens } from "/mod/_core/framework/js/token-count.js";
 import {
@@ -15,6 +20,8 @@ import {
   normalizeStoredAttachment,
   serializeAttachmentMetadata
 } from "/mod/_core/admin/views/agent/attachments.js";
+
+const huggingfaceManager = getHuggingFaceManager();
 
 function getRuntime() {
   const runtime = globalThis.space;
@@ -236,16 +243,53 @@ function createEmptyWebLlmState() {
   };
 }
 
-function summarizeAdminAgentLlmSelection(settings, webllmState) {
+function createEmptyHuggingFaceState() {
+  return mapManagerStateToAdminState(huggingfaceManager.getSnapshot());
+}
+
+function summarizeAdminAgentLlmSelection(settings, webllmState, huggingfaceState) {
   const provider = config.normalizeAdminChatLlmProvider(settings?.provider);
 
-  if (provider === config.ADMIN_CHAT_LLM_PROVIDER.WEBLLM) {
-    const activeModelId = typeof webllmState?.activeModelId === "string" ? webllmState.activeModelId.trim() : "";
-    const configuredModelId = typeof settings?.webllmModel === "string" ? settings.webllmModel.trim() : "";
-    return configuredModelId || activeModelId || "Local WebLLM";
+  if (provider === config.ADMIN_CHAT_LLM_PROVIDER.LOCAL) {
+    const localProvider = config.normalizeAdminChatLocalProvider(settings?.localProvider);
+
+    if (localProvider === config.ADMIN_CHAT_LOCAL_PROVIDER.WEBLLM) {
+      const activeModelId = typeof webllmState?.activeModelId === "string" ? webllmState.activeModelId.trim() : "";
+      const configuredModelId = typeof settings?.webllmModel === "string" ? settings.webllmModel.trim() : "";
+      return configuredModelId || activeModelId || "No model";
+    }
+
+    const activeModelId = typeof huggingfaceState?.activeModelId === "string" ? huggingfaceState.activeModelId.trim() : "";
+    const configuredModelId = normalizeHuggingFaceModelInput(settings?.huggingfaceModel || "");
+    return configuredModelId || activeModelId || "No model";
   }
 
   return agentView.summarizeLlmConfig(settings?.apiEndpoint || "", settings?.model || "");
+}
+
+function isHuggingFaceSelectionMatch(left = {}, right = {}) {
+  return (
+    normalizeHuggingFaceModelInput(left?.modelId || left?.modelInput || "") === normalizeHuggingFaceModelInput(right?.modelId || right?.modelInput || "")
+    && String(left?.dtype || "").trim() === String(right?.dtype || "").trim()
+  );
+}
+
+function getHuggingFaceSelectionValue(modelId, dtype) {
+  return config.createAdminChatHuggingFaceSelectionValue(modelId, dtype);
+}
+
+function parseHuggingFaceSelectionValue(value) {
+  return config.parseAdminChatHuggingFaceSelectionValue(value);
+}
+
+function getConfiguredLocalProvider(settings = {}) {
+  return config.normalizeAdminChatLocalProvider(settings.localProvider);
+}
+
+function getConfiguredLocalProviderLabel(settings = {}) {
+  return getConfiguredLocalProvider(settings) === config.ADMIN_CHAT_LOCAL_PROVIDER.WEBLLM
+    ? "WebLLM"
+    : "HuggingFace ONNX";
 }
 
 const model = {
@@ -291,6 +335,9 @@ const model = {
   settings: {
     apiEndpoint: "",
     apiKey: "",
+    huggingfaceDtype: config.DEFAULT_ADMIN_CHAT_SETTINGS.huggingfaceDtype,
+    huggingfaceModel: "",
+    localProvider: config.DEFAULT_ADMIN_CHAT_SETTINGS.localProvider,
     maxTokens: config.DEFAULT_ADMIN_CHAT_SETTINGS.maxTokens,
     model: "",
     paramsText: "",
@@ -300,6 +347,9 @@ const model = {
   settingsDraft: {
     apiEndpoint: "",
     apiKey: "",
+    huggingfaceDtype: config.DEFAULT_ADMIN_CHAT_SETTINGS.huggingfaceDtype,
+    huggingfaceModel: "",
+    localProvider: config.DEFAULT_ADMIN_CHAT_SETTINGS.localProvider,
     maxTokens: config.DEFAULT_ADMIN_CHAT_SETTINGS.maxTokens,
     model: "",
     paramsText: "",
@@ -312,6 +362,8 @@ const model = {
   systemPrompt: "",
   systemPromptDraft: "",
   runtimeSystemPrompt: "",
+  huggingface: createEmptyHuggingFaceState(),
+  huggingfaceManagerUnsubscribe: null,
   webllm: createEmptyWebLlmState(),
   webllmRuntime: null,
   windowFocusHandler: null,
@@ -372,17 +424,25 @@ const model = {
   },
 
   get llmSummary() {
-    const provider = config.normalizeAdminChatLlmProvider(this.settings.provider);
-    const providerLabel = provider === config.ADMIN_CHAT_LLM_PROVIDER.WEBLLM ? "Local" : "API";
-    return `${providerLabel} · ${summarizeAdminAgentLlmSelection(this.settings, this.webllm)}`;
+    return summarizeAdminAgentLlmSelection(this.settings, this.webllm, this.huggingface);
   },
 
   get isSettingsDraftUsingApiProvider() {
     return config.normalizeAdminChatLlmProvider(this.settingsDraft.provider) === config.ADMIN_CHAT_LLM_PROVIDER.API;
   },
 
-  get isSettingsDraftUsingWebLlmProvider() {
-    return config.normalizeAdminChatLlmProvider(this.settingsDraft.provider) === config.ADMIN_CHAT_LLM_PROVIDER.WEBLLM;
+  get isSettingsDraftUsingLocalProvider() {
+    return config.normalizeAdminChatLlmProvider(this.settingsDraft.provider) === config.ADMIN_CHAT_LLM_PROVIDER.LOCAL;
+  },
+
+  get isSettingsDraftUsingLocalHuggingFaceProvider() {
+    return this.isSettingsDraftUsingLocalProvider
+      && config.normalizeAdminChatLocalProvider(this.settingsDraft.localProvider) === config.ADMIN_CHAT_LOCAL_PROVIDER.HUGGINGFACE;
+  },
+
+  get isSettingsDraftUsingLocalWebLlmProvider() {
+    return this.isSettingsDraftUsingLocalProvider
+      && config.normalizeAdminChatLocalProvider(this.settingsDraft.localProvider) === config.ADMIN_CHAT_LOCAL_PROVIDER.WEBLLM;
   },
 
   get webllmDownloadedModels() {
@@ -390,8 +450,191 @@ const model = {
     return this.webllm.prebuiltModels.filter((modelRecord) => cachedModelIds.has(modelRecord.model_id));
   },
 
+  get webllmCatalogModels() {
+    return Array.isArray(this.webllm.prebuiltModels) ? this.webllm.prebuiltModels : [];
+  },
+
   get hasDownloadedWebllmModels() {
     return this.webllmDownloadedModels.length > 0;
+  },
+
+  get adminSelectedWebLlmModelLabel() {
+    const selectedModelId = String(this.settingsDraft.webllmModel || "").trim();
+    return selectedModelId || "No model selected";
+  },
+
+  get huggingfaceSavedModels() {
+    return Array.isArray(this.huggingface.savedModels) ? this.huggingface.savedModels : [];
+  },
+
+  get hasSavedHuggingFaceModels() {
+    return this.huggingfaceSavedModels.length > 0;
+  },
+
+  get adminSelectedHuggingFaceModelLabel() {
+    const selectedModelId = normalizeHuggingFaceModelInput(this.settingsDraft.huggingfaceModel || "");
+    const selectedDtype = String(this.settingsDraft.huggingfaceDtype || "").trim();
+
+    if (!selectedModelId) {
+      return "No model selected";
+    }
+
+    return selectedDtype ? `${selectedModelId} · ${selectedDtype}` : selectedModelId;
+  },
+
+  get huggingfaceDtypeOptions() {
+    return DTYPE_OPTIONS;
+  },
+
+  get huggingfaceLoadProgressPercent() {
+    return Math.max(0, Math.min(100, Math.round(Number(this.huggingface.loadProgress?.progress || 0) * 100)));
+  },
+
+  get huggingfaceStatusBadgeText() {
+    if (!this.huggingface.webgpuSupported) {
+      return "Unavailable";
+    }
+
+    if (this.huggingface.error) {
+      return "Error";
+    }
+
+    if (this.huggingface.isWorkerBooting && !this.huggingface.isLoadingModel) {
+      return "Starting";
+    }
+
+    if (this.huggingface.isLoadingModel) {
+      return this.huggingface.loadProgress?.status === "download" ? "Downloading" : "Loading";
+    }
+
+    if (this.huggingface.activeModelId) {
+      return "Ready";
+    }
+
+    return "Idle";
+  },
+
+  get huggingfaceStatusTone() {
+    if (!this.huggingface.webgpuSupported) {
+      return "is-error";
+    }
+
+    if (this.huggingface.error) {
+      return "is-error";
+    }
+
+    if (this.huggingface.isLoadingModel || this.huggingface.isWorkerBooting) {
+      return "is-loading";
+    }
+
+    if (this.huggingface.activeModelId) {
+      return "is-ready";
+    }
+
+    return "is-idle";
+  },
+
+  get huggingfaceSelectedModelStatusText() {
+    const selectedModelId = normalizeHuggingFaceModelInput(this.settingsDraft.huggingfaceModel || "");
+    const selectedDtype = String(this.settingsDraft.huggingfaceDtype || "").trim();
+
+    if (!this.huggingface.webgpuSupported) {
+      return "WebGPU is unavailable in this browser.";
+    }
+
+    if (this.huggingface.isLoadingModel) {
+      return this.huggingface.loadProgress.text || this.huggingface.statusText || "Loading selected model...";
+    }
+
+    if (this.huggingface.isWorkerBooting) {
+      return "Starting Hugging Face runtime...";
+    }
+
+    if (this.huggingface.error) {
+      return this.huggingface.error;
+    }
+
+    if (!selectedModelId || !selectedDtype) {
+      return this.hasSavedHuggingFaceModels
+        ? "Choose a saved model or enter a new Hugging Face repo id."
+        : "Enter a Hugging Face repo id or pick a saved model.";
+    }
+
+    if (
+      this.huggingface.activeModelId === selectedModelId
+      && this.huggingface.activeDtype === selectedDtype
+    ) {
+      return "Loaded locally and ready for admin chat.";
+    }
+
+    if (this.huggingface.activeModelId) {
+      return `Loaded model: ${this.huggingface.activeModelId}`;
+    }
+
+    if (this.isSavedHuggingFaceModel(selectedModelId, selectedDtype)) {
+      return "Click Load to reuse this browser-cached model.";
+    }
+
+    return "Click Download and load to fetch this model into the browser, or save and let the first message load it.";
+  },
+
+  get huggingfaceCurrentModelLabel() {
+    return this.huggingface.loadingModelLabel || this.huggingface.activeModelId || "None loaded";
+  },
+
+  get adminHuggingFaceCurrentModelActionLabel() {
+    return this.huggingface.isLoadingModel ? "Stop" : "Unload";
+  },
+
+  get adminHuggingFaceSelectedModelActionLabel() {
+    const selectedModelId = normalizeHuggingFaceModelInput(this.settingsDraft.huggingfaceModel || "");
+    const selectedDtype = String(this.settingsDraft.huggingfaceDtype || "").trim();
+
+    if (this.huggingface.isLoadingModel) {
+      return "Stop";
+    }
+
+    if (!selectedModelId || !selectedDtype) {
+      return "Load";
+    }
+
+    if (
+      selectedModelId
+      && selectedDtype
+      && this.huggingface.activeModelId === selectedModelId
+      && this.huggingface.activeDtype === selectedDtype
+    ) {
+      return "Unload";
+    }
+
+    if (this.isSavedHuggingFaceModel(selectedModelId, selectedDtype)) {
+      return "Load";
+    }
+
+    return "Download and load";
+  },
+
+  get canAdminActOnSelectedHuggingFaceModel() {
+    if (!this.huggingface.webgpuSupported || this.isSending) {
+      return false;
+    }
+
+    if (this.huggingface.isLoadingModel) {
+      return true;
+    }
+
+    return Boolean(
+      normalizeHuggingFaceModelInput(this.settingsDraft.huggingfaceModel || "")
+      && String(this.settingsDraft.huggingfaceDtype || "").trim()
+    );
+  },
+
+  get canAdminUnloadHuggingFaceModel() {
+    return Boolean(
+      !this.isSending
+      && (this.huggingface.isWorkerReady || this.huggingface.isLoadingModel)
+      && (this.huggingface.activeModelId || this.huggingface.isLoadingModel)
+    );
   },
 
   get webllmLoadProgressPercent() {
@@ -454,11 +697,7 @@ const model = {
     }
 
     if (!selectedModelId) {
-      return this.hasDownloadedWebllmModels ? "Choose a downloaded model." : "No downloaded models found yet.";
-    }
-
-    if (!this.isDownloadedWebllmModel(selectedModelId)) {
-      return "This model is not downloaded in this browser yet.";
+      return this.webllmCatalogModels.length ? "Choose a WebLLM model." : "No WebLLM models are available yet.";
     }
 
     if (this.webllm.activeModelId === selectedModelId) {
@@ -469,11 +708,62 @@ const model = {
       return `Loaded model: ${this.webllm.activeModelId}`;
     }
 
-    return "This model will load locally when used.";
+    if (this.isDownloadedWebllmModel(selectedModelId)) {
+      return "Click Load to reuse this downloaded model.";
+    }
+
+    return "Click Download and load to cache this model in the browser, or save and let the first message load it.";
   },
 
   get webllmCurrentModelLabel() {
     return this.webllm.loadingModelLabel || this.webllm.activeModelId || "None loaded";
+  },
+
+  get adminWebLlmCurrentModelActionLabel() {
+    return this.webllm.isLoadingModel ? "Stop" : "Unload";
+  },
+
+  get adminWebLlmSelectedModelActionLabel() {
+    const selectedModelId = String(this.settingsDraft.webllmModel || "").trim();
+
+    if (this.webllm.isLoadingModel || this.webllm.isUnloadingModel) {
+      return "Stop";
+    }
+
+    if (!selectedModelId) {
+      return "Load";
+    }
+
+    if (selectedModelId && this.webllm.activeModelId === selectedModelId) {
+      return "Unload";
+    }
+
+    if (this.isDownloadedWebllmModel(selectedModelId)) {
+      return "Load";
+    }
+
+    return "Download and load";
+  },
+
+  get canAdminActOnSelectedWebLlmModel() {
+    if (!this.webllm.webgpuSupported || this.isSending) {
+      return false;
+    }
+
+    if (this.webllm.isLoadingModel || this.webllm.isUnloadingModel) {
+      return true;
+    }
+
+    return Boolean(String(this.settingsDraft.webllmModel || "").trim());
+  },
+
+  get canAdminUnloadWebLlmModel() {
+    return Boolean(
+      !this.isSending
+      && this.webllm.isWorkerReady
+      && (this.webllm.activeModelId || this.webllm.isLoadingModel)
+      && !this.webllm.isUnloadingModel
+    );
   },
 
   get promptSummary() {
@@ -588,6 +878,24 @@ const model = {
     }));
   },
 
+  async ensureHuggingFaceSubscription() {
+    if (this.huggingfaceManagerUnsubscribe) {
+      this.syncHuggingFaceFromManager();
+      return huggingfaceManager;
+    }
+
+    this.huggingfaceManagerUnsubscribe = huggingfaceManager.subscribe((snapshot) => {
+      this.huggingface = mapManagerStateToAdminState(snapshot);
+    });
+    this.syncHuggingFaceFromManager();
+    return huggingfaceManager;
+  },
+
+  syncHuggingFaceFromManager() {
+    this.huggingface = mapManagerStateToAdminState(huggingfaceManager.getSnapshot());
+    return this.huggingface;
+  },
+
   async ensureWebLlmRuntime() {
     if (this.webllmRuntime instanceof AdminAgentWebLlmRuntime) {
       return this.webllmRuntime;
@@ -603,9 +911,174 @@ const model = {
     return this.webllmRuntime;
   },
 
+  async releaseInactiveLocalRuntime(activeLocalProvider) {
+    if (activeLocalProvider === config.ADMIN_CHAT_LOCAL_PROVIDER.HUGGINGFACE) {
+      if (this.webllmRuntime) {
+        try {
+          await this.webllmRuntime.unloadModel();
+        } catch {
+          // Ignore inactive-runtime unload failures and prefer freeing the worker.
+        }
+
+        this.webllmRuntime.destroy();
+        this.webllmRuntime = null;
+        this.webllm = createEmptyWebLlmState();
+      }
+
+      return;
+    }
+
+    const huggingfaceSnapshot = huggingfaceManager.getSnapshot();
+
+    if (huggingfaceSnapshot.activeModelId || huggingfaceSnapshot.isLoadingModel) {
+      try {
+        await huggingfaceManager.unloadModel({
+          clearPersistedSelection: false,
+          reboot: false
+        });
+      } catch {
+        // Ignore inactive-runtime unload failures and prefer freeing browser GPU memory.
+      }
+    }
+  },
+
+  async ensureActiveLocalRuntime(settings = this.settings) {
+    const localProvider = config.normalizeAdminChatLocalProvider(settings?.localProvider);
+    await this.releaseInactiveLocalRuntime(localProvider);
+
+    return localProvider === config.ADMIN_CHAT_LOCAL_PROVIDER.WEBLLM
+      ? this.ensureWebLlmRuntime()
+      : this.ensureHuggingFaceSubscription().then(() => null);
+  },
+
+  hasConfiguredLocalModel(settings = this.settings) {
+    if (config.normalizeAdminChatLlmProvider(settings?.provider) !== config.ADMIN_CHAT_LLM_PROVIDER.LOCAL) {
+      return false;
+    }
+
+    const localProvider = config.normalizeAdminChatLocalProvider(settings?.localProvider);
+
+    if (localProvider === config.ADMIN_CHAT_LOCAL_PROVIDER.WEBLLM) {
+      return Boolean(String(settings?.webllmModel || "").trim());
+    }
+
+    return Boolean(
+      normalizeHuggingFaceModelInput(settings?.huggingfaceModel || "")
+      && String(settings?.huggingfaceDtype || "").trim()
+    );
+  },
+
+  async autoLoadConfiguredLocalModel(settings = this.settings) {
+    if (!this.hasConfiguredLocalModel(settings)) {
+      return false;
+    }
+
+    const localProvider = config.normalizeAdminChatLocalProvider(settings?.localProvider);
+    await this.ensureActiveLocalRuntime(settings);
+
+    if (localProvider === config.ADMIN_CHAT_LOCAL_PROVIDER.WEBLLM) {
+      const runtime = await this.ensureWebLlmRuntime();
+      const selectedModelId = String(settings?.webllmModel || "").trim();
+
+      if (!selectedModelId) {
+        return false;
+      }
+
+      this.status = this.isDownloadedWebllmModel(selectedModelId)
+        ? `Loading ${selectedModelId} for local admin chat...`
+        : `Downloading and loading ${selectedModelId} for local admin chat...`;
+      await runtime.ensureModelLoaded({
+        modelId: selectedModelId
+      });
+      this.status = `Local ${getConfiguredLocalProviderLabel(settings)} ready.`;
+      return true;
+    }
+
+    const selectedModelId = normalizeHuggingFaceModelInput(settings?.huggingfaceModel || "");
+    const selectedDtype = String(settings?.huggingfaceDtype || "").trim();
+
+    if (!selectedModelId || !selectedDtype) {
+      return false;
+    }
+
+    this.status = this.isSavedHuggingFaceModel(selectedModelId, selectedDtype)
+      ? `Loading ${selectedModelId} for local admin chat...`
+      : `Downloading and loading ${selectedModelId} for local admin chat...`;
+    await huggingfaceManager.ensureModelLoaded({
+      dtype: selectedDtype,
+      modelId: selectedModelId,
+      modelInput: selectedModelId
+    });
+    this.syncHuggingFaceFromManager();
+    this.status = `Local ${getConfiguredLocalProviderLabel(settings)} ready.`;
+    return true;
+  },
+
+  isConfiguredLocalModelReady(settings = this.settings) {
+    const provider = config.normalizeAdminChatLlmProvider(settings?.provider);
+
+    if (provider !== config.ADMIN_CHAT_LLM_PROVIDER.LOCAL) {
+      return false;
+    }
+
+    const localProvider = config.normalizeAdminChatLocalProvider(settings?.localProvider);
+
+    if (localProvider === config.ADMIN_CHAT_LOCAL_PROVIDER.WEBLLM) {
+      const selectedModelId = String(settings?.webllmModel || "").trim();
+
+      return Boolean(
+        selectedModelId
+        && this.webllm.isWorkerReady
+        && !this.webllm.isLoadingModel
+        && !this.webllm.isUnloadingModel
+        && this.webllm.activeModelId === selectedModelId
+      );
+    }
+
+    const selectedModelId = normalizeHuggingFaceModelInput(settings?.huggingfaceModel || "");
+    const selectedDtype = String(settings?.huggingfaceDtype || "").trim();
+
+    return Boolean(
+      selectedModelId
+      && selectedDtype
+      && this.huggingface.isWorkerReady
+      && !this.huggingface.isLoadingModel
+      && this.huggingface.activeModelId === selectedModelId
+      && this.huggingface.activeDtype === selectedDtype
+    );
+  },
+
+  isSavedHuggingFaceModel(modelId, dtype) {
+    const normalizedSelection = {
+      dtype: String(dtype || "").trim(),
+      modelId: String(modelId || "").trim()
+    };
+
+    return this.huggingfaceSavedModels.some((entry) => isHuggingFaceSelectionMatch(entry, normalizedSelection));
+  },
+
+  async refreshHuggingFaceCatalog() {
+    await this.ensureHuggingFaceSubscription();
+    huggingfaceManager.refreshSavedModels();
+    this.syncHuggingFaceFromManager();
+    return this.huggingfaceSavedModels;
+  },
+
   isDownloadedWebllmModel(modelId) {
     const normalizedModelId = String(modelId || "").trim();
     return normalizedModelId ? this.webllm.cachedModelIds.includes(normalizedModelId) : false;
+  },
+
+  describeAdminWebLlmModelOption(modelRecord = {}) {
+    const modelId = String(modelRecord.model_id || "").trim();
+
+    if (!modelId) {
+      return "";
+    }
+
+    return this.isDownloadedWebllmModel(modelId)
+      ? `${modelId} · Downloaded`
+      : modelId;
   },
 
   async refreshWebLlmCatalog() {
@@ -614,28 +1087,19 @@ const model = {
     return this.webllmDownloadedModels;
   },
 
-  async preloadConfiguredWebLlmModel(modelId = this.settings.webllmModel, provider = this.settings.provider) {
-    const normalizedProvider = config.normalizeAdminChatLlmProvider(provider);
-    const normalizedModelId = String(modelId || "").trim();
-
-    if (normalizedProvider !== config.ADMIN_CHAT_LLM_PROVIDER.WEBLLM || !normalizedModelId) {
+  async warmSettingsDraftLocalProvider() {
+    if (!this.isSettingsDraftUsingLocalProvider) {
       return false;
     }
 
-    const runtime = await this.ensureWebLlmRuntime();
-
-    try {
-      await runtime.waitForInitialCacheStatus();
-      if (!runtime.isModelCached(normalizedModelId)) {
-        return false;
-      }
-
-      await runtime.ensureModelLoaded(normalizedModelId);
+    if (this.isSettingsDraftUsingLocalWebLlmProvider) {
+      await this.ensureWebLlmRuntime();
+      await this.refreshWebLlmCatalog();
       return true;
-    } catch (error) {
-      this.status = error.message;
-      return false;
     }
+
+    await this.refreshHuggingFaceCatalog();
+    return true;
   },
 
   async init() {
@@ -678,17 +1142,16 @@ const model = {
         this.systemPromptDraft = this.systemPrompt;
         await this.refreshRuntimeSystemPrompt();
 
-        void this.ensureWebLlmRuntime()
-          .then(() => this.refreshWebLlmCatalog())
-          .then(() => this.preloadConfiguredWebLlmModel())
-          .catch((error) => {
-            this.status = error.message;
-          });
-
         this.isInitialized = true;
         this.status = "Ready.";
         this.render();
         this.focusInput();
+
+        if (this.hasConfiguredLocalModel(this.settings)) {
+          void this.autoLoadConfiguredLocalModel(this.settings).catch((error) => {
+            this.status = error.message;
+          });
+        }
       } catch (error) {
         this.status = error.message;
         this.render();
@@ -717,11 +1180,13 @@ const model = {
 
     if (!this.windowFocusHandler) {
       this.windowFocusHandler = () => {
-        if (!this.webllmRuntime) {
-          return;
+        if (this.webllmRuntime) {
+          void this.refreshWebLlmCatalog();
         }
 
-        void this.refreshWebLlmCatalog();
+        if (this.huggingfaceManagerUnsubscribe) {
+          void this.refreshHuggingFaceCatalog();
+        }
       };
       window.addEventListener("focus", this.windowFocusHandler);
     }
@@ -737,6 +1202,9 @@ const model = {
       window.removeEventListener("focus", this.windowFocusHandler);
       this.windowFocusHandler = null;
     }
+    this.huggingfaceManagerUnsubscribe?.();
+    this.huggingfaceManagerUnsubscribe = null;
+    this.huggingface = createEmptyHuggingFaceState();
     this.webllmRuntime?.destroy();
     this.webllmRuntime = null;
     this.webllm = createEmptyWebLlmState();
@@ -776,7 +1244,8 @@ const model = {
 
   async refreshRuntimeSystemPrompt() {
     this.runtimeSystemPrompt = await prompt.buildRuntimeAdminSystemPrompt(this.systemPrompt, {
-      defaultSystemPrompt: this.defaultSystemPrompt
+      defaultSystemPrompt: this.defaultSystemPrompt,
+      localProfile: config.normalizeAdminChatLlmProvider(this.settings.provider) === config.ADMIN_CHAT_LLM_PROVIDER.LOCAL
     });
     this.refreshHistoryMetrics();
     return this.runtimeSystemPrompt;
@@ -1250,15 +1719,12 @@ const model = {
     this.settingsDraft = {
       ...this.settings
     };
-    void this.ensureWebLlmRuntime()
-      .then(() => this.refreshWebLlmCatalog())
-      .then(() => {
-        if (this.isSettingsDraftUsingWebLlmProvider && this.settingsDraft.webllmModel) {
-          return this.preloadConfiguredWebLlmModel(this.settingsDraft.webllmModel, this.settingsDraft.provider);
-        }
 
-        return false;
-      })
+    if (!String(this.settingsDraft.huggingfaceDtype || "").trim()) {
+      this.settingsDraft.huggingfaceDtype = DTYPE_OPTIONS[0]?.value || config.DEFAULT_ADMIN_CHAT_SETTINGS.huggingfaceDtype;
+    }
+
+    void this.warmSettingsDraftLocalProvider()
       .catch((error) => {
         this.status = error.message;
       });
@@ -1270,51 +1736,202 @@ const model = {
   },
 
   setSettingsProvider(provider) {
-    this.settingsDraft.provider = config.normalizeAdminChatLlmProvider(provider);
+    this.settingsDraft = {
+      ...this.settingsDraft,
+      provider: config.normalizeAdminChatLlmProvider(provider)
+    };
 
-    if (this.isSettingsDraftUsingWebLlmProvider) {
-      void this.ensureWebLlmRuntime()
-        .then(() => this.refreshWebLlmCatalog())
-        .then(() => {
-          if (this.settingsDraft.webllmModel) {
-            return this.preloadConfiguredWebLlmModel(this.settingsDraft.webllmModel, this.settingsDraft.provider);
-          }
-
-          return false;
-        })
-        .catch((error) => {
-          this.status = error.message;
-        });
+    if (this.isSettingsDraftUsingLocalProvider) {
+      void this.warmSettingsDraftLocalProvider().catch((error) => {
+        this.status = error.message;
+      });
     }
   },
 
-  handleSettingsWebLlmModelDraftChange() {
-    if (!this.isSettingsDraftUsingWebLlmProvider) {
-      return;
+  setSettingsLocalProvider(localProvider) {
+    this.settingsDraft = {
+      ...this.settingsDraft,
+      localProvider: config.normalizeAdminChatLocalProvider(localProvider)
+    };
+
+    if (
+      this.settingsDraft.localProvider === config.ADMIN_CHAT_LOCAL_PROVIDER.HUGGINGFACE
+      && !String(this.settingsDraft.huggingfaceDtype || "").trim()
+    ) {
+      this.settingsDraft = {
+        ...this.settingsDraft,
+        huggingfaceDtype: DTYPE_OPTIONS[0]?.value || config.DEFAULT_ADMIN_CHAT_SETTINGS.huggingfaceDtype
+      };
     }
 
-    const selectedModelId = String(this.settingsDraft.webllmModel || "").trim();
-    if (!selectedModelId) {
+    if (this.isSettingsDraftUsingLocalProvider) {
+      void this.warmSettingsDraftLocalProvider().catch((error) => {
+        this.status = error.message;
+      });
+    }
+  },
+
+  handleSettingsWebLlmModelDraftChange(value = this.settingsDraft.webllmModel) {
+    this.settingsDraft = {
+      ...this.settingsDraft,
+      webllmModel: String(value || "").trim()
+    };
+  },
+
+  handleSettingsHuggingFaceModelInput(value = "") {
+    this.settingsDraft = {
+      ...this.settingsDraft,
+      huggingfaceModel: String(value ?? "")
+    };
+  },
+
+  handleSettingsHuggingFaceDtypeChange(value = this.settingsDraft.huggingfaceDtype) {
+    this.settingsDraft = {
+      ...this.settingsDraft,
+      huggingfaceDtype: String(value || "").trim()
+    };
+  },
+
+  handleSettingsHuggingFaceModelDraftChange(value) {
+    const selection = parseHuggingFaceSelectionValue(value);
+    this.settingsDraft = {
+      ...this.settingsDraft,
+      huggingfaceDtype: selection.dtype,
+      huggingfaceModel: selection.modelId
+    };
+  },
+
+  getSettingsDraftHuggingFaceSelectionValue() {
+    return getHuggingFaceSelectionValue(this.settingsDraft.huggingfaceModel, this.settingsDraft.huggingfaceDtype);
+  },
+
+  getHuggingFaceSavedModelSelectionValue(model) {
+    return getHuggingFaceSelectionValue(model?.modelId, model?.dtype);
+  },
+
+  requestAdminWebLlmModelUnload() {
+    if (!this.canAdminUnloadWebLlmModel) {
       return;
     }
 
     void this.ensureWebLlmRuntime()
-      .then(() => this.refreshWebLlmCatalog())
-      .then(() => {
-        if (this.settingsDraft.webllmModel) {
-          return this.preloadConfiguredWebLlmModel(this.settingsDraft.webllmModel, this.settingsDraft.provider);
+      .then((runtime) => runtime.unloadModel())
+      .catch((error) => {
+        this.status = error.message;
+      });
+  },
+
+  requestAdminSelectedWebLlmModelAction() {
+    if (!this.canAdminActOnSelectedWebLlmModel) {
+      return;
+    }
+
+    const selectedModelId = String(this.settingsDraft.webllmModel || "").trim();
+
+    void this.releaseInactiveLocalRuntime(config.ADMIN_CHAT_LOCAL_PROVIDER.WEBLLM)
+      .then(() => this.ensureWebLlmRuntime())
+      .then(async (runtime) => {
+        if (this.webllm.isLoadingModel || this.webllm.isUnloadingModel) {
+          this.status = "Stopping WebLLM model load...";
+          return runtime.unloadModel();
         }
 
-        return false;
+        if (!selectedModelId) {
+          throw new Error("Choose a WebLLM model.");
+        }
+
+        if (this.webllm.activeModelId === selectedModelId) {
+          this.status = `Unloading ${selectedModelId}...`;
+          return runtime.unloadModel();
+        }
+
+        this.status = this.isDownloadedWebllmModel(selectedModelId)
+          ? `Loading ${selectedModelId} for local admin chat...`
+          : `Downloading and loading ${selectedModelId} for local admin chat...`;
+        return runtime.loadModel(selectedModelId);
       })
       .catch((error) => {
         this.status = error.message;
       });
   },
 
+  requestAdminHuggingFaceModelUnload() {
+    if (!this.canAdminUnloadHuggingFaceModel) {
+      return;
+    }
+
+    void this.ensureHuggingFaceSubscription()
+      .then(() => huggingfaceManager.unloadModel({
+        clearPersistedSelection: false,
+        reboot: false
+      }))
+      .then(() => this.syncHuggingFaceFromManager())
+      .catch((error) => {
+        this.status = error.message;
+      });
+  },
+
+  requestAdminSelectedHuggingFaceModelAction() {
+    if (!this.canAdminActOnSelectedHuggingFaceModel) {
+      return;
+    }
+
+    const selectedModelId = normalizeHuggingFaceModelInput(this.settingsDraft.huggingfaceModel || "");
+    const selectedDtype = String(this.settingsDraft.huggingfaceDtype || "").trim();
+
+    void this.releaseInactiveLocalRuntime(config.ADMIN_CHAT_LOCAL_PROVIDER.HUGGINGFACE)
+      .then(() => this.ensureHuggingFaceSubscription())
+      .then(async () => {
+        if (this.huggingface.isLoadingModel) {
+          this.status = "Stopping Hugging Face model load...";
+          return huggingfaceManager.unloadModel({
+            clearPersistedSelection: false,
+            reboot: false
+          });
+        }
+
+        if (!selectedModelId || !selectedDtype) {
+          throw new Error("Choose a Hugging Face model and dtype.");
+        }
+
+        if (
+          this.huggingface.activeModelId === selectedModelId
+          && this.huggingface.activeDtype === selectedDtype
+        ) {
+          this.status = `Unloading ${selectedModelId}...`;
+          return huggingfaceManager.unloadModel({
+            clearPersistedSelection: false,
+            reboot: false
+          });
+        }
+
+        this.status = this.isSavedHuggingFaceModel(selectedModelId, selectedDtype)
+          ? `Loading ${selectedModelId} for local admin chat...`
+          : `Downloading and loading ${selectedModelId} for local admin chat...`;
+        return huggingfaceManager.loadModel({
+          dtype: selectedDtype,
+          maxNewTokens: this.huggingface.maxNewTokens,
+          modelInput: selectedModelId
+        });
+      })
+      .then(() => this.syncHuggingFaceFromManager())
+      .catch((error) => {
+        this.status = error.message;
+      });
+  },
+
   openWebLlmConfiguration() {
+    if (this.webllmRuntime) {
+      this.webllmRuntime.openConfiguration();
+      return;
+    }
+
     const targetUrl = new URL("/#/webllm", window.location.origin).href;
     window.open(targetUrl, "_blank", "noopener");
+  },
+
+  openHuggingFaceConfiguration() {
+    huggingfaceManager.openConfiguration();
   },
 
   resetSettingsDraftToDefaults() {
@@ -1372,6 +1989,7 @@ const model = {
 
   async saveSettingsFromDialog() {
     const provider = config.normalizeAdminChatLlmProvider(this.settingsDraft.provider);
+    const localProvider = config.normalizeAdminChatLocalProvider(this.settingsDraft.localProvider);
     const paramsText = typeof this.settingsDraft.paramsText === "string" ? this.settingsDraft.paramsText.trim() : "";
     let maxTokens = config.DEFAULT_ADMIN_CHAT_SETTINGS.maxTokens;
 
@@ -1379,16 +1997,19 @@ const model = {
       maxTokens = config.parseAdminChatMaxTokens(this.settingsDraft.maxTokens);
       llmParams.parseAdminAgentParamsText(paramsText);
 
-      if (provider === config.ADMIN_CHAT_LLM_PROVIDER.WEBLLM) {
-        await this.refreshWebLlmCatalog();
+      if (provider === config.ADMIN_CHAT_LLM_PROVIDER.LOCAL) {
+        if (localProvider === config.ADMIN_CHAT_LOCAL_PROVIDER.WEBLLM) {
+          const webllmModel = String(this.settingsDraft.webllmModel || "").trim();
+          if (!webllmModel) {
+            throw new Error("Choose a WebLLM model before saving.");
+          }
+        } else {
+          const huggingfaceModel = normalizeHuggingFaceModelInput(this.settingsDraft.huggingfaceModel || "");
+          const huggingfaceDtype = String(this.settingsDraft.huggingfaceDtype || "").trim();
 
-        const webllmModel = String(this.settingsDraft.webllmModel || "").trim();
-        if (!webllmModel) {
-          throw new Error("Choose a downloaded WebLLM model before saving.");
-        }
-
-        if (!this.isDownloadedWebllmModel(webllmModel)) {
-          throw new Error("This WebLLM model is not downloaded in this browser. Open WebLLM configuration to download it first.");
+          if (!huggingfaceModel || !huggingfaceDtype) {
+            throw new Error("Choose a Hugging Face model and dtype before saving.");
+          }
         }
       }
     } catch (error) {
@@ -1399,6 +2020,9 @@ const model = {
     this.settings = {
       apiEndpoint: (this.settingsDraft.apiEndpoint || "").trim(),
       apiKey: (this.settingsDraft.apiKey || "").trim(),
+      huggingfaceDtype: (this.settingsDraft.huggingfaceDtype || "").trim(),
+      huggingfaceModel: normalizeHuggingFaceModelInput(this.settingsDraft.huggingfaceModel || ""),
+      localProvider,
       maxTokens,
       model: (this.settingsDraft.model || "").trim(),
       paramsText,
@@ -1408,12 +2032,16 @@ const model = {
 
     try {
       await this.persistConfig();
-      if (provider === config.ADMIN_CHAT_LLM_PROVIDER.WEBLLM && this.settings.webllmModel) {
-        void this.preloadConfiguredWebLlmModel();
-      }
-      this.status =
-        provider === config.ADMIN_CHAT_LLM_PROVIDER.WEBLLM ? "Local WebLLM settings updated." : "API LLM settings updated.";
+      this.status = provider === config.ADMIN_CHAT_LLM_PROVIDER.LOCAL
+        ? `Local ${getConfiguredLocalProviderLabel(this.settings)} settings updated. Preparing the selected model in the background.`
+        : "API LLM settings updated.";
       this.closeSettingsDialog();
+
+      if (provider === config.ADMIN_CHAT_LLM_PROVIDER.LOCAL) {
+        void this.autoLoadConfiguredLocalModel(this.settings).catch((error) => {
+          this.status = error.message;
+        });
+      }
     } catch (error) {
       this.status = error.message;
     }
@@ -1445,20 +2073,32 @@ const model = {
     }
 
     void this.webllmRuntime?.resetChat().catch(() => {});
+    void huggingfaceManager.resetChat().catch(() => {});
 
     this.render();
     this.status = "Admin chat cleared and execution context reset.";
   },
 
   async streamAssistantResponse(requestMessages, assistantMessage) {
-    if (config.normalizeAdminChatLlmProvider(this.settings.provider) === config.ADMIN_CHAT_LLM_PROVIDER.WEBLLM) {
-      await this.ensureWebLlmRuntime();
-    }
+    let localRuntime = null;
+    let hasSeenDelta = false;
+    const usingLocalProvider =
+      config.normalizeAdminChatLlmProvider(this.settings.provider) === config.ADMIN_CHAT_LLM_PROVIDER.LOCAL;
 
-    this.status = "Streaming response...";
-    const runtimeSystemPrompt = await prompt.buildRuntimeAdminSystemPrompt(this.systemPrompt, {
-      defaultSystemPrompt: this.defaultSystemPrompt
-    });
+    if (usingLocalProvider) {
+      const localModelReady = this.isConfiguredLocalModelReady(this.settings);
+      this.status = localModelReady ? "Running local LLM..." : "Loading local LLM...";
+      localRuntime = await this.ensureActiveLocalRuntime(this.settings);
+
+      if (!hasSeenDelta) {
+        this.status = this.isConfiguredLocalModelReady(this.settings)
+          ? "Running local LLM..."
+          : "Loading local LLM...";
+      }
+    } else {
+      this.status = "Streaming response...";
+    }
+    const runtimeSystemPrompt = await this.refreshRuntimeSystemPrompt();
     this.runtimeSystemPrompt = runtimeSystemPrompt;
     const controller = new AbortController();
     this.activeRequestController = controller;
@@ -1470,11 +2110,16 @@ const model = {
         systemPrompt: runtimeSystemPrompt,
         messages: requestMessages,
         onDelta: (delta) => {
+          if (!hasSeenDelta) {
+            hasSeenDelta = true;
+            this.status = "Streaming response...";
+          }
+
           assistantMessage.content += delta;
           this.scheduleStreamingMessageRender(assistantMessage);
         },
-        signal: controller.signal,
-        webllmRuntime: this.webllmRuntime
+        localRuntime,
+        signal: controller.signal
       });
     } catch (error) {
       assistantMessage.streaming = false;
@@ -1575,9 +2220,10 @@ const model = {
       const compactPrompt = await prompt.fetchAdminHistoryCompactPrompt({
         mode
       });
-      if (config.normalizeAdminChatLlmProvider(this.settings.provider) === config.ADMIN_CHAT_LLM_PROVIDER.WEBLLM) {
-        await this.ensureWebLlmRuntime();
-      }
+      const localRuntime =
+        config.normalizeAdminChatLlmProvider(this.settings.provider) === config.ADMIN_CHAT_LLM_PROVIDER.LOCAL
+          ? await this.ensureActiveLocalRuntime(this.settings)
+          : null;
       let trimmedHistoryText = historyText;
 
       for (let attempt = 0; attempt < MAX_COMPACT_TRIM_ATTEMPTS; attempt++) {
@@ -1597,7 +2243,7 @@ const model = {
             onDelta: (delta) => {
               compactedHistory += delta;
             },
-            webllmRuntime: this.webllmRuntime
+            localRuntime
           });
         } catch (err) {
           compactionError = err;

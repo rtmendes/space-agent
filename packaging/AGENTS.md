@@ -46,11 +46,15 @@ Required coverage:
 
 `packaging/package.json` holds packaging-only dependencies so the root install can stay lean, and packaging scripts must treat that file as the authoritative Electron version and distribution source for native builds.
 
+The root `package.json` `build` block owns the Electron app entry, copied files, and `directories.app` selection. That config must keep the app directory pinned to the repo root because `app/package.json` exists only to mark the browser tree as an ES module package boundary, not to redefine the desktop host's app root.
+
+That same root build config disables `npmRebuild` for desktop packaging. `nodegit` is optional in this repo, so packaged desktop builds rely on the existing Git backend fallback order instead of requiring Electron-time native rebuilds of every optional module.
+
 `packaging/scripts/` holds packaging entrypoints and shared build helpers. Multiword operation entrypoints use object-first hyphen naming such as `host-package.js`, `linux-package.js`, and `desktop-dev-run.js`.
 
-`packaging/resources/` holds shared packaging resources.
+`packaging/resources/` holds shared packaging resources, including the canonical source artwork that desktop packaging can derive platform icons from.
 
-`packaging/platforms/` holds OS-specific packaging assets and metadata.
+`packaging/platforms/` holds OS-specific packaging assets and metadata, including derived app icons such as the Windows `.ico` file and the Linux icon-size set.
 
 Native hosts should remain thin:
 
@@ -58,7 +62,7 @@ Native hosts should remain thin:
 - open the browser app inside the host surface
 - native host startup code must await async server-factory work before reading runtime fields such as `host`, `port`, `server`, or `watchdog`, and host shutdown paths must tolerate partial startup failure
 - packaged desktop builds must keep the app tree unpacked on disk instead of wrapping it in `app.asar`, because the server watchdog and app-file indexing layers depend on watching real directories under the bundled project tree
-- packaged desktop builds may add packaging-owned runtime param overrides when the native host contract requires them; the current Electron host forces `SINGLE_USER_APP=true` only for packaged apps, opens `/enter` as the recovery-safe splash entry when single-user mode is active, and source-checkout desktop dev runs keep normal runtime auth behavior
+- packaged desktop builds may add packaging-owned runtime param overrides when the native host contract requires them; the current Electron host binds the backend to loopback with `PORT=0` so the OS assigns a free local port, waits for the server runtime to publish the resolved `browserUrl`, forces `SINGLE_USER_APP=true` only for packaged apps, opens `/enter` as the recovery-safe splash entry when single-user mode is active, and keeps normal runtime auth behavior for source-checkout desktop dev runs
 - preserve platform-neutral behavior here when possible
 
 ## Guidance

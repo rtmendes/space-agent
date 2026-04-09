@@ -16,7 +16,7 @@ Current child skills:
 
 - `SKILL.md`: router skill that tells the agent which deeper development skills to load next
 - `frontend-runtime/SKILL.md`: editable browser-runtime, store, visual, and framework usage rules
-- `modules-routing/SKILL.md`: module placement, routed view creation, and router seam rules
+- `modules-routing/SKILL.md` plus `modules-routing/page-tools.js`: module placement, routed view creation, router seam rules, page-manifest guidance, and reusable page-list or navigation helpers
 - `extensions-components/SKILL.md`: `ext/html/`, `ext/js/`, `x-extension`, and `x-component` contracts
 - `app-files-apis/SKILL.md`: frontend use of `space.api`, app-file paths, and permission-aware data access
 - `layers-ownership/SKILL.md`: `L0` or `L1` or `L2`, groups, users, and override order
@@ -42,6 +42,7 @@ Source-doc mirror map:
 
 - `frontend-runtime/SKILL.md` mirrors `/app/AGENTS.md` and `/app/L0/_all/mod/_core/framework/AGENTS.md`
 - `modules-routing/SKILL.md` mirrors `/app/AGENTS.md` and `/app/L0/_all/mod/_core/router/AGENTS.md`
+- `modules-routing/page-tools.js` mirrors `/app/L0/_all/mod/_core/pages/AGENTS.md` plus the router helper contract in `/app/L0/_all/mod/_core/router/AGENTS.md`
 - `extensions-components/SKILL.md` mirrors `/app/AGENTS.md` and `/app/L0/_all/mod/_core/framework/AGENTS.md`
 - `app-files-apis/SKILL.md` mirrors `/app/AGENTS.md`, `/server/api/AGENTS.md`, and `/server/lib/customware/AGENTS.md`, including the `user_self_info` identity contract and writable-root derivation rules
 - `layers-ownership/SKILL.md` mirrors `/AGENTS.md`, `/app/AGENTS.md`, `/server/lib/customware/AGENTS.md`, and `/server/lib/auth/AGENTS.md`
@@ -51,6 +52,7 @@ Source-doc mirror map:
 ## Local Contracts
 
 - the router skill must tell the agent to load one or more deeper skills before making development changes
+- the router skill and `modules-routing/SKILL.md` should teach custom routed pages as the primary extension path when the user wants a reusable feature surface instead of a space widget
 - the router skill and `app-files-apis/SKILL.md` must tell the agent to inspect `space.api.userSelfInfo()` and derive writable app roots from `username`, `managedGroups`, and `_admin` membership in `groups`
 - this skill set only authorizes frontend development in `app/`; the backend reference skill is for understanding contracts, not for editing `server/`, `commands/`, or `packaging/`
 - the router skill should tell the agent to use the top-level `documentation` skill's built-in docs map for broad orientation when relevant, while still treating `AGENTS.md` files as the binding contract layer
@@ -67,5 +69,6 @@ Source-doc mirror map:
 - keep the router skill short and directive
 - keep child skills concrete and task-oriented
 - prefer exact path examples and file locations over abstract advice
+- keep reusable helper scripts small and importable from stable `/mod/...` paths when a skill needs browser logic more than once
 - call out read-only backend boundaries explicitly wherever backend context appears
 - if framework, router, API, layer, permission, or auth rules change, update this subtree before finishing the session

@@ -89,6 +89,7 @@ Only params with `frontend_exposed: true` are injected into page-shell meta tags
 ## Current High-Value Params
 
 - `CUSTOMWARE_PATH`: parent directory that owns writable `L1/` and `L2/` roots
+- `PORT`: accepts `0` when a caller wants the OS to assign a free local port at startup
 - `SINGLE_USER_APP`: implicit always-authenticated `user` principal with virtual `_admin` access
 - `ALLOW_GUEST_USERS`: enables guest creation from the login screen when password login is enabled
 

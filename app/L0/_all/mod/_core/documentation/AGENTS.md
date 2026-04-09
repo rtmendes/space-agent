@@ -15,7 +15,7 @@ This module owns one documentation tree plus one skill/helper surface.
 Current structure:
 
 - `ext/skills/documentation/SKILL.md`: the required entry skill that lists every documentation page by relative path, name, and short description and tells the agent how to read focused docs
-- `docs/architecture/`: repo-wide runtime and documentation-system orientation
+- `docs/architecture/`: repo-wide runtime, desktop-host packaging, and documentation-system orientation
 - `docs/app/`: frontend runtime, admin-agent, browser-side WebLLM and Hugging Face runtime docs, extension, and spaces documentation
 - `docs/agent/`: onscreen-agent runtime, prompt, execution, and skill-system documentation
 - `docs/server/`: router, page, API, auth, and layered-filesystem documentation
@@ -44,6 +44,7 @@ This module owns:
 - `documentation.js` should stay focused on explicit doc reads and URL resolution; broad orientation belongs in the documentation skill body, not in a second helper round-trip
 - markdown docs in this tree should stay standalone enough that the agent can load one file without needing large hidden context
 - docs in this tree should summarize stable architecture, helper surfaces, workflows, and navigation paths; binding contracts still live in `AGENTS.md`
+- when a doc describes a routed runtime surface with multiple internal panes, capture the stable scroll and viewport-capping ownership there so layout behavior does not drift between modules
 - when a doc summarizes a runtime surface, it should name the primary source files and the owning `AGENTS.md` file so drift is easy to correct
 - keep docs grouped by logical area instead of one giant file
 - avoid transient notes, ad hoc scratch docs, or duplicating the full text of `AGENTS.md`; summarize and connect the source contracts instead
@@ -56,4 +57,5 @@ This module owns:
 - when a stable contract changes elsewhere in the repo, update the relevant source `AGENTS.md` first or alongside it, then reflect that change into this module's docs
 - when `_core/spaces` changes widget-authoring defaults, keep `docs/app/spaces-and-widgets.md` aligned with `ext/skills/spaces/SKILL.md`, including shell-level expectations such as built-in padding, default surface color, and the default light-on-dark foreground treatment
 - when extension-loading behavior changes, keep the matching `docs/app/` and `docs/server/` pages aligned in the same session, and update `docs/cli/` only when the change really affects CLI-managed runtime params
+- when a new first-party routed page also advertises itself through `ext/pages/*.yaml` or persists user-local promptinclude or settings files, reflect that in `docs/app/modules-and-extensions.md` and `docs/app/runtime-and-layers.md` in the same session
 - do not let this module drift into a second hidden prompt system; it is browsable repo documentation

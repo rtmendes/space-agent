@@ -67,6 +67,7 @@ Important rules:
 
 - `layer_limit.js` constrains module and extension resolution through `maxLayer`
 - frontend HTML anchors resolve through module `ext/html/...` paths and JS hooks resolve through module `ext/js/...` paths
+- modules may also resolve other extension-owned assets through the same ranked `ext/...` override model when the frontend calls `extensions_load` directly; the current first-party example is `ext/pages/*.yaml`
 - exact same override keys replace lower-ranked entries
 - different extension filenames under the same extension point compose together
 - `module_inheritance.js` and `extension_overrides.js` are the only supported paths for `/mod/...` and extension resolution

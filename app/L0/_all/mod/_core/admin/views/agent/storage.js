@@ -40,17 +40,31 @@ function isMissingFileError(error) {
 
 function normalizeStoredConfig(parsedConfig) {
   const storedConfig = parsedConfig && typeof parsedConfig === "object" ? parsedConfig : {};
+  const rawStoredProvider = storedConfig.llm_provider || storedConfig.provider;
   const storedMaxTokens =
     storedConfig.max_tokens ?? storedConfig.maxTokens ?? config.DEFAULT_ADMIN_CHAT_SETTINGS.maxTokens;
+  const provider = rawStoredProvider === "webllm"
+    ? config.ADMIN_CHAT_LLM_PROVIDER.LOCAL
+    : config.normalizeAdminChatLlmProvider(rawStoredProvider);
+  const localProvider = rawStoredProvider === "webllm"
+    ? config.ADMIN_CHAT_LOCAL_PROVIDER.WEBLLM
+    : config.normalizeAdminChatLocalProvider(storedConfig.local_provider || storedConfig.localProvider);
 
   return {
     settings: {
       apiEndpoint: String(storedConfig.api_endpoint || storedConfig.apiEndpoint || config.DEFAULT_ADMIN_CHAT_SETTINGS.apiEndpoint || "").trim(),
       apiKey: String(storedConfig.api_key || storedConfig.apiKey || config.DEFAULT_ADMIN_CHAT_SETTINGS.apiKey || "").trim(),
+      huggingfaceDtype: String(
+        storedConfig.huggingface_dtype || storedConfig.huggingfaceDtype || config.DEFAULT_ADMIN_CHAT_SETTINGS.huggingfaceDtype || ""
+      ).trim(),
+      huggingfaceModel: String(
+        storedConfig.huggingface_model || storedConfig.huggingfaceModel || config.DEFAULT_ADMIN_CHAT_SETTINGS.huggingfaceModel || ""
+      ).trim(),
+      localProvider,
       maxTokens: config.normalizeAdminChatMaxTokens(storedMaxTokens),
       model: String(storedConfig.model || config.DEFAULT_ADMIN_CHAT_SETTINGS.model || "").trim(),
       paramsText: String(storedConfig.params || storedConfig.paramsText || config.DEFAULT_ADMIN_CHAT_SETTINGS.paramsText || "").trim(),
-      provider: config.normalizeAdminChatLlmProvider(storedConfig.llm_provider || storedConfig.provider),
+      provider,
       webllmModel: String(
         storedConfig.webllm_model || storedConfig.webllmModel || config.DEFAULT_ADMIN_CHAT_SETTINGS.webllmModel || ""
       ).trim()
@@ -70,6 +84,9 @@ function buildStoredConfigPayload({ settings, systemPrompt }) {
   const payload = {
     api_endpoint: String(settings?.apiEndpoint || config.DEFAULT_ADMIN_CHAT_SETTINGS.apiEndpoint || "").trim(),
     api_key: String(settings?.apiKey || config.DEFAULT_ADMIN_CHAT_SETTINGS.apiKey || "").trim(),
+    huggingface_dtype: String(settings?.huggingfaceDtype || config.DEFAULT_ADMIN_CHAT_SETTINGS.huggingfaceDtype || "").trim(),
+    huggingface_model: String(settings?.huggingfaceModel || config.DEFAULT_ADMIN_CHAT_SETTINGS.huggingfaceModel || "").trim(),
+    local_provider: config.normalizeAdminChatLocalProvider(settings?.localProvider),
     llm_provider: config.normalizeAdminChatLlmProvider(settings?.provider),
     max_tokens: config.normalizeAdminChatMaxTokens(settings?.maxTokens),
     model: String(settings?.model || config.DEFAULT_ADMIN_CHAT_SETTINGS.model || "").trim(),

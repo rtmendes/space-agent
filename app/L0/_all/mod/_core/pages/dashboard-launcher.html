@@ -1,0 +1,64 @@
+<html>
+  <head>
+    <link rel="stylesheet" href="/mod/_core/pages/dashboard-launcher.css" />
+    <script type="module" src="/mod/_core/pages/dashboard-launcher.js"></script>
+  </head>
+  <body>
+    <section class="dashboard-pages-launcher" x-data="pagesDashboardLauncher()" x-init="init()">
+      <div class="dashboard-pages-launcher-shell">
+        <div class="dashboard-pages-launcher-header">
+          <h2>Pages</h2>
+        </div>
+
+        <template x-if="loading">
+          <div class="dashboard-pages-launcher-empty">
+            <x-icon>schedule</x-icon>
+            <p>Loading pages…</p>
+          </div>
+        </template>
+
+        <template x-if="!loading && loadErrorText">
+          <div class="dashboard-pages-launcher-empty is-error">
+            <x-icon>error</x-icon>
+            <p x-text="loadErrorText"></p>
+            <button type="button" class="secondary-button" @click="loadPages()">
+              <x-icon>refresh</x-icon>
+              <span>Try Again</span>
+            </button>
+          </div>
+        </template>
+
+        <template x-if="!loading && !loadErrorText && !hasEntries">
+          <div class="dashboard-pages-launcher-empty">
+            <p>No pages are available for this account.</p>
+          </div>
+        </template>
+
+        <template x-if="!loading && !loadErrorText && hasEntries">
+          <div class="dashboard-pages-launcher-grid">
+            <template x-for="item in entries" :key="item.id">
+              <a
+                class="dashboard-page-card"
+                :aria-label="`Open ${item.name}`"
+                :href="hrefFor(item.routePath)"
+                @click.prevent="openPage(item.routePath)"
+              >
+                <span
+                  class="dashboard-page-card-icon"
+                  :style="{ '--dashboard-page-card-icon-color': item.color }"
+                >
+                  <x-icon x-text="item.icon"></x-icon>
+                </span>
+
+                <div class="dashboard-page-card-copy">
+                  <h3 x-text="item.name"></h3>
+                  <p x-text="item.description || `#/${item.routePath}`"></p>
+                </div>
+              </a>
+            </template>
+          </div>
+        </template>
+      </div>
+    </section>
+  </body>
+</html>

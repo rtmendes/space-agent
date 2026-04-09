@@ -9,6 +9,8 @@ Use this skill when frontend work depends on understanding backend behavior. Thi
 
 - Do not edit `server/`, `commands/`, or `packaging/` from this skill set.
 - If the task truly requires backend changes, stop and ask instead of treating this skill as permission.
+- Backend changes are non-standard in this project. Only ask for them when frontend-only work cannot safely enforce security, integrity, cross-user isolation, or runtime stability.
+- When you ask, explain why the frontend solution would be insufficient and describe the narrow backend change required.
 
 ## Page And Request Flow
 
@@ -44,6 +46,7 @@ These endpoints are thin wrappers over shared helpers in `server/lib/customware/
 - `/admin` effectively clamps module and extension resolution to `L0`.
 - Frontend HTML extensions resolve through `ext/html/...`.
 - Frontend JS hooks resolve through `ext/js/...`.
+- Frontend modules may also enumerate other extension-owned assets such as `ext/pages/*.yaml` through `extensions_load` when they need the same permission-aware layered override behavior.
 
 ## Auth And User Storage
 
@@ -60,6 +63,7 @@ These endpoints are thin wrappers over shared helpers in `server/lib/customware/
 - to understand where module and extension inheritance comes from
 - to understand why admin UI is firmware-clamped while normal app routing is layered
 - to understand the user and group storage model without editing backend logic
+- to identify the small set of cases where backend ownership is mandatory instead of merely convenient
 
 ## Mandatory Doc Follow-Up
 

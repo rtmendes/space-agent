@@ -53,10 +53,12 @@ Important runtime endpoints:
 
 `extensions_load`:
 
-- resolves HTML and JS extension files through the layered override system
+- resolves module-owned `ext/...` files through the layered override system
 - supports grouped extension lookups
 - is the shared backend for frontend extension loading
 - receives grouped lookup batches from the frontend; the batching policy itself lives in the frontend loader, not in the endpoint contract
+- first-party HTML anchors and JS hooks use it for `ext/html/...` and `ext/js/...`
+- first-party page indexing also uses it to enumerate `ext/pages/*.yaml` manifests while still honoring readable-layer permissions and same-path overrides
 
 `user_self_info`:
 

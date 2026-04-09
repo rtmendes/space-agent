@@ -13,6 +13,8 @@ Documentation is top priority for this module. After any change under `_core/web
 This module owns:
 
 - `view.html`: routed test page for WebLLM model loading and chat
+- `config-sidebar.html`: standalone config-sidebar component used by the routed test page and the admin local-provider modal
+- `ext/pages/webllm.yaml`: dashboard page-manifest entry for the routed WebLLM test page
 - `store.js`: page store, worker lifecycle, UI state, and routed surface behavior
 - `webllm-worker.js`: dedicated worker that imports the vendored WebLLM runtime, loads models, streams deltas, and handles stop/reset actions
 - `helpers.js`: shared model-selection, conversation-shaping, and metric-formatting helpers used by the page and worker
@@ -25,10 +27,15 @@ This module owns:
 Current route contract:
 
 - the test route is `#/webllm`
+- `ext/pages/webllm.yaml` should continue to advertise this route through the shared dashboard pages index, using the shorthand manifest path `webllm`
 - the page is browser-only and should not require backend API changes
 - the routed page is intentionally a compact, low-chrome manual test surface, not a general agent runtime
+- `view.html` should import the config sidebar through `<x-component path="/mod/_core/webllm/config-sidebar.html" mode="testing">` instead of inlining that sidebar markup directly
+- the same `config-sidebar.html` file should also support an `admin` mode used inside the admin agent modal, where it renders the local-model selector, a visible selected-model summary, direct download or load or unload action, status copy, progress, and testing-chat launch button against `$store.adminAgent`
 - the sidebar should surface the currently loaded model first, inside a slightly more prominent rounded panel with a larger model label, a compact right-aligned state badge, and an unload control beside the model name; while loading, that action should switch to `Stop` and cancel the in-flight load/download, and the progress bar should keep a small visible fill immediately so startup does not look stalled before precise progress arrives
 - on desktop, the route should sit slightly inside the viewport instead of filling it edge to edge, and the models block should expand to consume the remaining sidebar height above the advanced section
+- on desktop, the routed page itself should stay viewport-capped and let only the model list and chat thread own the long-scroll behavior; the route shell should not grow tall enough to push the composer below the fold
+- keep that desktop viewport clamp route-local inside `webllm.css`, mirroring the Hugging Face page contract instead of adding a router-shell-specific height override
 - the advanced custom-model form should stay collapsed by default
 - the system-prompt editor in the chat column should stay collapsed by default so the thread and composer keep most of the height
 

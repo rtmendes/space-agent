@@ -3,12 +3,20 @@ export const ADMIN_CHAT_HISTORY_PATH = "~/hist/admin-chat.json";
 export const DEFAULT_ADMIN_CHAT_MAX_TOKENS = 64_000;
 export const ADMIN_CHAT_LLM_PROVIDER = {
   API: "api",
+  LOCAL: "local"
+};
+
+export const ADMIN_CHAT_LOCAL_PROVIDER = {
+  HUGGINGFACE: "huggingface",
   WEBLLM: "webllm"
 };
 
 export const DEFAULT_ADMIN_CHAT_SETTINGS = {
   apiEndpoint: "https://openrouter.ai/api/v1/chat/completions",
   apiKey: "",
+  huggingfaceDtype: "q4",
+  huggingfaceModel: "",
+  localProvider: ADMIN_CHAT_LOCAL_PROVIDER.HUGGINGFACE,
   maxTokens: DEFAULT_ADMIN_CHAT_MAX_TOKENS,
   model: "openai/gpt-5.4-mini",
   paramsText: "temperature:0.2",
@@ -17,9 +25,71 @@ export const DEFAULT_ADMIN_CHAT_SETTINGS = {
 };
 
 export function normalizeAdminChatLlmProvider(value) {
-  return value === ADMIN_CHAT_LLM_PROVIDER.WEBLLM
-    ? ADMIN_CHAT_LLM_PROVIDER.WEBLLM
+  return value === ADMIN_CHAT_LLM_PROVIDER.LOCAL
+    ? ADMIN_CHAT_LLM_PROVIDER.LOCAL
     : ADMIN_CHAT_LLM_PROVIDER.API;
+}
+
+export function normalizeAdminChatLocalProvider(value) {
+  return value === ADMIN_CHAT_LOCAL_PROVIDER.WEBLLM
+    ? ADMIN_CHAT_LOCAL_PROVIDER.WEBLLM
+    : ADMIN_CHAT_LOCAL_PROVIDER.HUGGINGFACE;
+}
+
+export function createAdminChatHuggingFaceSelectionValue(modelId, dtype) {
+  const normalizedModelId = String(modelId || "").trim();
+  const normalizedDtype = String(dtype || "").trim();
+
+  if (!normalizedModelId || !normalizedDtype) {
+    return "";
+  }
+
+  return JSON.stringify({
+    dtype: normalizedDtype,
+    modelId: normalizedModelId
+  });
+}
+
+export function parseAdminChatHuggingFaceSelectionValue(value) {
+  const rawValue = String(value || "").trim();
+
+  if (!rawValue) {
+    return {
+      dtype: "",
+      modelId: ""
+    };
+  }
+
+  try {
+    const parsedValue = JSON.parse(rawValue);
+
+    return {
+      dtype: String(parsedValue?.dtype || "").trim(),
+      modelId: String(parsedValue?.modelId || "").trim()
+    };
+  } catch {
+    return {
+      dtype: "",
+      modelId: ""
+    };
+  }
+}
+
+export function getAdminChatLocalModelSelection(settings = {}) {
+  const provider = normalizeAdminChatLocalProvider(settings.localProvider);
+
+  if (provider === ADMIN_CHAT_LOCAL_PROVIDER.WEBLLM) {
+    return {
+      modelId: String(settings.webllmModel || "").trim(),
+      provider
+    };
+  }
+
+  return {
+    dtype: String(settings.huggingfaceDtype || "").trim(),
+    modelId: String(settings.huggingfaceModel || "").trim(),
+    provider
+  };
 }
 
 function normalizeMaxTokensText(value) {

@@ -1,0 +1,5 @@
+name: Hugging Face
+path: huggingface
+description: Load Transformers.js browser models and run a compact testing chat.
+icon: hub
+color: "#7de3c9"

@@ -6,9 +6,11 @@ This doc focuses on how the onscreen agent builds model input and how execution 
 
 - `app/L0/_all/mod/_core/onscreen_agent/AGENTS.md`
 - `app/L0/_all/mod/_core/onscreen_agent/prompts/AGENTS.md`
+- `app/L0/_all/mod/_core/promptinclude/AGENTS.md`
 - `app/L0/_all/mod/_core/onscreen_agent/llm.js`
 - `app/L0/_all/mod/_core/onscreen_agent/execution.js`
 - `app/L0/_all/mod/_core/onscreen_agent/api.js`
+- `app/L0/_all/mod/_core/promptinclude/promptinclude.js`
 
 ## Prepared Prompt Order
 
@@ -22,7 +24,9 @@ Important details:
 
 - example messages are ordinary alternating user/assistant messages inserted before live history
 - example messages count toward token totals but are never replaced by compaction
+- owner modules may prepend extra system-prompt sections before the skill catalog; `_core/promptinclude` currently injects a stable `## prompt includes` instruction block there and then appends readable `*.system.include.md` files as extra system-prompt sections
 - transient runtime context is emitted as its own trailing prepared message when present
+- `_core/promptinclude` may also append a `prompt includes` transient section that lists readable `**/*.transient.include.md` files in alphabetical full-path order and renders each file body in its own fenced block
 
 ## Message Markers
 
@@ -79,4 +83,4 @@ Important extension families:
 - final prompt-input assembly
 - execution-plan validation hooks
 
-Module-specific workflow policy belongs in owner-module skills or owner-module `_core/onscreen_agent/...` JS hooks.
+Current first-party examples include `_core/spaces` for current-space instructions and `_core/promptinclude` for persistent split system/transient include discovery. Module-specific workflow policy still belongs in owner-module skills or owner-module `_core/onscreen_agent/...` JS hooks.

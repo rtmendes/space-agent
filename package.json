@@ -25,6 +25,7 @@
   "build": {
     "appId": "com.spaceagent.desktop",
     "productName": "Space Agent",
+    "npmRebuild": false,
     "files": [
       "space",
       "app/**/*",
@@ -34,9 +35,11 @@
       "package.json"
     ],
     "directories": {
+      "app": ".",
       "buildResources": "packaging/resources"
     },
     "mac": {
+      "icon": "packaging/resources/icons/source/space-agent-icon.png",
       "category": "public.app-category.developer-tools",
       "target": [
         "dmg",

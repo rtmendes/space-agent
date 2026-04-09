@@ -43,7 +43,7 @@ Current editor rule:
 - editable current-path navigation
 - Up, Home, and Refresh actions
 - highlighted entry, selection, and per-directory scroll memory
-- row-level overflow actions through the shared popover contract
+- row-level overflow actions through the shared popover contract, with post-open remeasurement so the menu stays left of the trigger and inside the viewport near the right edge
 - selection-summary actions when multiple paths are checked
 - clipboard state for cut or copied items plus paste into the current folder
 - shared dialogs for rename, delete confirmation, and text editing

@@ -1,0 +1,45 @@
+# AGENTS
+
+## Purpose
+
+`_core/agent/` owns the routed browser page for basic agent information and personal agent settings.
+
+It provides the first-party `#/agent` route, keeps the page UI and persistence local to the module, reuses the public login-shell astronaut asset for the informational card, and lets the current user edit their personal prompt-include file at `~/conf/personality.system.include.md`.
+
+Documentation is top priority for this module. After any change under `_core/agent/`, update this file and any affected parent docs in the same session.
+
+## Ownership
+
+This module owns:
+
+- `view.html`: routed page shell for the agent information card and personality editor card
+- `agent.css`: page-local layout, card styling, compact modal-style action treatment, and the local floating-avatar animation
+- `store.js`: page store plus load or reload or save flow and inline status state for the personality editor
+- `storage.js`: file-path constants plus load or save helpers for the user personality include file
+- `ext/pages/agent.yaml`: dashboard page-manifest entry for the routed agent page
+
+## Local Contracts
+
+Current route and page-manifest contract:
+
+- the route is `#/agent`, so the router resolves it to `/mod/_core/agent/view.html`
+- `ext/pages/agent.yaml` should continue to advertise this route to the dashboard pages index with the shorthand manifest path `agent`
+- the page should stay self-contained inside this module; feature logic, styling, and persistence helpers do not belong in router or overlay internals
+
+Current UI and persistence contract:
+
+- the route has no standalone page header; the two cards own the full visible layout
+- the first card is informational and should keep the floating astronaut asset from the login shell via `/pages/res/astronaut_no_bg.webp`
+- the first card does not show current-user identity text and ends with one compact external repo action that links to `https://github.com/agent0ai/space-agent`
+- the second card owns the personality textarea and should load or save the exact file body from `~/conf/personality.system.include.md`
+- the personality textarea has no extra label line above it and uses compact shared button styling for reload and save actions
+- save flow should create `~/conf/` when needed before writing the personality file
+- missing personality files are the normal empty-state case and should not surface as hard errors
+- the personality file is promptinclude-owned content: readable `*.system.include.md` files are injected into the agent system prompt, so this page must treat the textarea as raw include text rather than inventing a second config format
+
+## Development Guidance
+
+- keep implementation changes inside this module unless a stable cross-module contract truly changes
+- keep the avatar animation local here; do not patch public-shell or overlay motion just to tune this route
+- keep personality persistence as a plain text include file, not YAML
+- if the route path, page-manifest path, astronaut asset path, or personality include path changes, update this file, `/app/AGENTS.md`, and the matching supplemental docs under `_core/documentation/docs/`

@@ -62,6 +62,7 @@ export const help = {
   usage: [
     "node space serve",
     "node space serve --host 0.0.0.0 --port 3000",
+    "node space serve PORT=0",
     "node space serve PORT=3100 ALLOW_GUEST_USERS=false",
     "node space serve CUSTOMWARE_PATH=../space-customware"
   ],
@@ -80,6 +81,7 @@ export const help = {
   examples: [
     "node space serve",
     "node space serve --host 127.0.0.1 --port 3100",
+    "node space serve PORT=0",
     "node space serve PORT=80 ALLOW_GUEST_USERS=false",
     "node space serve SINGLE_USER_APP=true HOST=127.0.0.1",
     "node space serve CUSTOMWARE_PATH=/srv/space/customware"

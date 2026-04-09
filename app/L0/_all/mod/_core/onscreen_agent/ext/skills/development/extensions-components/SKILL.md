@@ -31,6 +31,12 @@ Example:
 - Framework-backed pages expose `_core/framework/initializer.js/initialize`; prefer its `/end` hook for once-per-page shell setup such as analytics or `document.head` injection.
 - If a feature needs onscreen-agent-specific prompt shaping or execution validation for its own helpers, add an `ext/js/_core/onscreen_agent/...` hook from that feature instead of editing `_core/onscreen_agent` directly.
 
+## Extension Metadata Rules
+
+- Modules may also store lightweight metadata assets under other `ext/` folders when those files should follow the same readable-layer permissions and same-path override rules as HTML and JS extensions.
+- The current first-party example is `ext/pages/*.yaml`, which the dashboard page index discovers through `extensions_load`.
+- Keep those metadata files display-oriented. They are extension-resolved module assets, not general writable storage.
+
 ## Component Loader Rules
 
 - `<x-component>` may load a full HTML document or a fragment.

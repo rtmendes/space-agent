@@ -1,9 +1,10 @@
 import * as config from "/mod/_core/admin/views/agent/config.js";
 import { buildMessageContentForApi } from "/mod/_core/admin/views/agent/attachments.js";
 import * as llmParams from "/mod/_core/admin/views/agent/llm-params.js";
-import { AdminAgentWebLlmRuntime } from "/mod/_core/admin/views/agent/webllm.js";
+import { AdminAgentLocalLlmRuntime } from "/mod/_core/admin/views/agent/local-runtime.js";
 import { mergeConsecutiveChatMessages } from "/mod/_core/framework/js/chat-messages.js";
 import * as proxyUrl from "/mod/_core/framework/js/proxy-url.js";
+import { getHuggingFaceManager } from "/mod/_core/huggingface/manager.js";
 
 function createHeaders(endpoint, apiKey) {
   const headers = {
@@ -316,17 +317,31 @@ async function streamAdminAgentApiCompletion({ settings, systemPrompt, messages,
   return readStreamingResponse(response, onDelta);
 }
 
-export async function streamAdminAgentCompletion({ settings, systemPrompt, messages, onDelta, signal, webllmRuntime }) {
+export async function streamAdminAgentCompletion({ settings, systemPrompt, messages, onDelta, signal, localRuntime }) {
   const provider = config.normalizeAdminChatLlmProvider(settings?.provider);
 
-  if (provider === config.ADMIN_CHAT_LLM_PROVIDER.WEBLLM) {
-    if (!(webllmRuntime instanceof AdminAgentWebLlmRuntime)) {
-      throw new Error("WebLLM runtime is not available.");
+  if (provider === config.ADMIN_CHAT_LLM_PROVIDER.LOCAL) {
+    const localProvider = config.normalizeAdminChatLocalProvider(settings?.localProvider);
+
+    if (localProvider === config.ADMIN_CHAT_LOCAL_PROVIDER.HUGGINGFACE) {
+      const result = await getHuggingFaceManager().streamCompletion({
+        messages: buildAdminAgentPromptMessages(systemPrompt, messages),
+        modelSelection: config.getAdminChatLocalModelSelection(settings),
+        onDelta,
+        requestOptions: llmParams.parseAdminAgentParamsText(settings.paramsText || ""),
+        signal
+      });
+
+      return result.responseMeta;
     }
 
-    return webllmRuntime.streamCompletion({
+    if (!(localRuntime instanceof AdminAgentLocalLlmRuntime)) {
+      throw new Error("Local runtime is not available.");
+    }
+
+    return localRuntime.streamCompletion({
       messages: buildAdminAgentPromptMessages(systemPrompt, messages),
-      modelId: settings.webllmModel,
+      modelSelection: config.getAdminChatLocalModelSelection(settings),
       onDelta,
       requestOptions: llmParams.parseAdminAgentParamsText(settings.paramsText || ""),
       signal

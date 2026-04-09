@@ -5,6 +5,7 @@ This doc covers the first-party browser inference test surface under `_core/hugg
 ## Primary Sources
 
 - `app/L0/_all/mod/_core/huggingface/AGENTS.md`
+- `app/L0/_all/mod/_core/huggingface/manager.js`
 - `app/L0/_all/mod/_core/huggingface/view.html`
 - `app/L0/_all/mod/_core/huggingface/store.js`
 - `app/L0/_all/mod/_core/huggingface/huggingface-worker.js`
@@ -18,6 +19,8 @@ The route is:
 ```txt
 #/huggingface
 ```
+
+This route is also advertised to the dashboard pages index through `_core/huggingface/ext/pages/huggingface.yaml`, using the shorthand manifest path `huggingface`.
 
 The router resolves that to:
 
@@ -37,8 +40,11 @@ The page owns:
 - one freeform model loader that accepts a Hugging Face repo id or Hub URL
 - a small saved-model list remembered in browser storage for quick reuse
 - a collapsed advanced section for dtype and max-new-token settings
+- one always-visible runtime note under that advanced section explaining that the route runs locally on WebGPU, requires Transformers.js-compatible ONNX repos, and uses browser caching after the first load
 - a simple testing chat with system prompt, user messages, streamed assistant replies, stop, and clear-chat
 - compact response metrics inline under each assistant reply
+
+When the browser has no saved local Hugging Face models and no persisted auto-reload target, the model input prefills `onnx-community/gemma-4-E4B-it-ONNX` as the empty-state suggestion. The default generation cap is `16384` max new tokens unless the user changes it.
 
 This is not a general agent surface. It does not expose tool execution, queueing, attachments, persisted conversations, or backend orchestration.
 
@@ -48,23 +54,37 @@ This is not a general agent surface. It does not expose tool execution, queueing
 
 The ownership split is:
 
-- `view.html` mounts the route shell and binds to the Alpine store
-- `store.js` owns UI state, local persistence, saved-model memory, worker lifecycle, and streamed message updates
+- `view.html` mounts the route shell, binds to the Alpine store, and imports the standalone config sidebar through `<x-component>`
+- `config-sidebar.html` owns the standalone model-loading sidebar component used by both the routed page and the admin-agent local modal
+- `manager.js` owns the singleton worker lifecycle, saved-model registry, persisted last-loaded selection, live model state, and cross-surface stream control within one browser context
+- `store.js` owns the routed page's local chat UI state and mirrors the shared manager state into Alpine
 - `huggingface-worker-bootstrap.js` is the tiny startup wrapper that imports the heavy runtime worker and catches import/startup failures
 - `huggingface-worker.js` owns the Transformers.js import, model downloads, generation, streaming, and interruption
 - `protocol.js` holds the stable message names between the page and the worker
-- `transformers.js` pins the external browser import so the worker references one local module path instead of embedding the CDN URL inline
+- `transformers.js` points at the vendored local browser build so the worker references one local module path instead of embedding a live CDN URL inline
+
+`manager.js` also distinguishes an idle unbooted runtime from an active startup. Consumers should use its explicit boot flag for `Starting` UI, not `!isWorkerReady` by itself, so idle status can stay `Idle` until this page actually boots the worker. Its snapshot payloads should stay plain-data and clone-safe so both the routed page and the admin adapter can mirror state without tripping browser clone errors.
+
+Admin may also read or refresh the shared saved-model list without booting the worker. Simply opening the admin settings dialog should not auto-start the Hugging Face runtime or auto-reload the persisted model just to populate admin shortcuts.
+
+In admin mode, the shared sidebar should show both the currently loaded model and the separately selected repo or dtype pair so the admin selector stays legible even before a load starts.
 
 For debugging, both layers log failures aggressively:
 
 - the worker logs caught load/chat failures, unhandled worker errors, and unhandled rejections through `console.error`
 - the page store also logs inbound load/chat failure payloads and raw worker startup/message error events through `console.error`
 - worker `console.error` calls are forwarded back across the worker protocol as structured payloads, so runtime logs can still be inspected from the page console even when the browser reports only an opaque worker crash
+- common ONNX Runtime WebGPU out-of-memory failures are also collapsed into a shorter user-facing error message in the shared manager, while the raw console trace remains available for debugging
 - the worker also emits explicit trace markers for major load phases such as runtime import and pipeline load; when the browser only reports a bare worker `error` event, the page can still report the last known phase
 - when a worker dies during startup, the page clears the dead worker instance and queued load state so a later retry can spawn a fresh worker instead of remaining stuck in `Queued`
 - the bootstrap worker exists specifically so heavy worker import/startup failures can be surfaced as at least one explicit trace/log payload before the browser falls back to a generic worker `error` event
+- the worker also accepts optional extra generation `requestOptions` so other local callers such as the admin agent can reuse the same routed worker contract instead of forking a second Hugging Face worker implementation
 
-The store may terminate and recreate the worker to stop an in-flight model download or to unload the currently loaded model. That keeps the runtime route-local and disposable.
+The shared progress snapshot keeps long post-download runtime preparation visually below `100%` until the actual `LOAD_COMPLETE` handoff arrives. That avoids a fake-complete bar sitting at `100%` during pipeline finalization.
+
+The worker-side text streamer should also emit deltas on each decoded token advance instead of waiting for space-delimited word finalization, because admin-agent replies often contain code or markdown where word-boundary buffering looks like broken streaming.
+
+`manager.js` may terminate and recreate the worker to stop an in-flight model download or to unload the currently loaded model. The worker stays module-local, but the live runtime state is no longer route-local. When admin switches to another local provider, it may intentionally unload Hugging Face without an immediate reboot so the browser can actually reclaim GPU memory before WebLLM or another local runtime takes over.
 
 ## Model Loading
 
@@ -75,7 +95,15 @@ Users load one model at a time by entering either:
 
 The helper layer normalizes Hub URLs back to repo ids before the worker loads them.
 
-The worker uses Transformers.js browser APIs on `device: "webgpu"` through the high-level `pipeline("text-generation", ...)` path, matching the current Hugging Face model-card examples for browser chat models. The route keeps the browser pin in `transformers.js`; as of April 8, 2026, the official installation docs show the CDN example on `@huggingface/transformers@4.0.0-next.7`, so this route pins that explicit preview build instead of the older `v3.8.1` browser import.
+The worker uses Transformers.js browser APIs on `device: "webgpu"` through the high-level `pipeline("text-generation", ...)` path, matching the current Hugging Face model-card examples for browser chat models. The route now vendors a local source build instead of depending on a live CDN package import. As of April 8, 2026, that vendored runtime comes from a local build of the upstream `transformers.js` `main` branch, whose package metadata reports `4.0.1`.
+
+The vendored runtime currently consists of:
+
+- a locally built `transformers.web.js`
+- a vendored `ort.webgpu.bundle.min.mjs`
+- the matching `ort-wasm-simd-threaded.asyncify.wasm` sidecar
+
+The vendored Transformers.js build rewrites its ONNX Runtime package imports to that local ORT bundle so the browser worker can load the unreleased runtime from `/mod/_core/huggingface/vendor/` without package-CDN resolution.
 
 Important model constraint:
 
@@ -84,7 +112,7 @@ Important model constraint:
 - the route does not try to discover or validate all compatible repos ahead of time
 - instead, the UI points users to the ONNX Community models browser on Hugging Face
 
-Saved models in the sidebar are just route-owned browser storage entries for quick reuse. They are not a browser-cache inventory and should not be treated as authoritative cache state.
+Saved models in the sidebar are just browser-side quick-reuse entries. They are not a browser-cache inventory and should not be treated as authoritative cache state. `manager.js` keeps that saved-model list as shared live state for the routed page and the admin agent within the same browser context, instead of each surface inventing a second local registry.
 
 ## Downloads And Caching
 
@@ -94,9 +122,15 @@ Current behavior:
 
 - first load downloads tokenizer and model assets in the browser
 - later loads may reuse whatever the browser-side Transformers.js cache already retained
-- the route does not expose cache scanning or cache deletion because Transformers.js does not expose the same model-catalog and cache-management surface that WebLLM does in `_core/webllm`
-- the current-model panel shows the active asset or phase under the progress bar, with the best available bytes-transferred or percent detail appended, because the underlying progress callback reports multiple per-file steps rather than one stable global download percentage
-- when the callback includes byte counts, the bar fill itself is driven from `loaded / total` so it matches the visible step detail instead of a looser generic progress value
+- the route still does not expose authoritative cache scanning, but it now exposes a repo-scoped discard action for saved models by deleting matching Hugging Face responses from the browser Cache API
+- the current-model panel shows one debounced aggregate download label under the progress bar, typically `Downloading model files (loaded / total)`, instead of rapidly alternating per-file names
+- the worker tracks byte counts across all known file downloads and sends an aggregate `loaded / total` snapshot back to the page, so the bar fill and the parenthetical size detail refer to the same total progress
+- the page store applies that aggregate snapshot directly instead of latching the highest individual callback value, which avoids the bar pinning at `100%` while more files are still arriving
+- when multiple files are downloading in parallel, the worker coalesces those callbacks into a generic total-progress label on a short cadence so the status line stays readable
+- saved-model rows now include a discard button that deletes matching Hugging Face repo responses from the browser Cache API and removes the affected saved-model entries from local storage
+- saved-model row actions stay enabled while the route is idle; only real model transitions or an in-flight discard should disable them
+- because the browser cache is repo-scoped while the saved-model list is keyed by model id plus dtype, discarding one entry may also prune other saved entries for the same repo id
+- the same `config-sidebar.html` file also has an `admin` mode used inside the admin agent modal, where it renders a direct repo-id input, dtype selector, saved-model shortcuts, current-model status, live load action or progress, and a button that opens the full Hugging Face testing chat route against the shared manager state
 
 ## Chat Flow
 

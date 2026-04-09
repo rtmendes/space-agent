@@ -6,6 +6,7 @@ This doc covers the frontend boot flow, the browser runtime namespace, and the l
 
 - `app/AGENTS.md`
 - `app/L0/_all/mod/_core/framework/AGENTS.md`
+- `app/L0/_all/mod/_core/login_hooks/AGENTS.md`
 - `app/L0/_all/mod/_core/router/AGENTS.md`
 - `app/L0/_all/mod/_core/framework/js/runtime.js`
 - `server/pages/*.html`
@@ -45,6 +46,8 @@ Permission summary:
 - users write their own `L2/<username>/...`
 - users write `L1/<group>/...` only if they manage that group
 - `_admin` members may write any `L1` and `L2` path
+- first-party frontend modules may persist small client-owned lifecycle state under the current user's `~/meta/` folder when that state is not backend auth material; `_core/login_hooks` uses `~/meta/login_hooks.json` to remember that first-login hooks already ran
+- first-party frontend modules may also edit small user-authored prompt or settings files under `~/conf/` when that data is intentionally browser-owned; `_core/agent` edits `~/conf/personality.system.include.md` as raw prompt-include text for the current user
 
 ## `globalThis.space`
 

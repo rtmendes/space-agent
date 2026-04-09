@@ -27,12 +27,30 @@
           x-ref="shell"
           x-cloak
           :style="$store.onscreenAgent.positionStyle"
+          @pointerdown.capture="$store.onscreenAgent.handleShellPointerDown($event)"
           @dragend.window="$store.onscreenAgent.resetAttachmentDragState()"
           @drop.window="$store.onscreenAgent.resetAttachmentDragState()"
           x-init="$nextTick(() => $store.onscreenAgent.mount({ actionMenu: $refs.actionMenu, avatar: $refs.avatar, attachmentInput: $refs.attachmentInput, historyDialog: $refs.historyDialog, input: $refs.input, panel: $refs.panel, rawDialog: $refs.rawDialog, scroller: $refs.scroller, settingsDialog: $refs.settingsDialog, shell: $refs.shell, uiBubbleContent: $refs.uiBubbleContent }))"
           x-destroy="$store.onscreenAgent.unmount()"
         >
           <div class="onscreen-agent-cluster">
+            <div
+              class="onscreen-agent-ui-bubble onscreen-agent-startup-hint-bubble is-visible"
+              x-show="$store.onscreenAgent.isStartupHintVisible"
+              :class="{
+                'is-left': $store.onscreenAgent.isDockedRight,
+                'is-right': !$store.onscreenAgent.isDockedRight,
+                'is-above': !$store.onscreenAgent.isUiBubbleBelowHead,
+                'is-below': $store.onscreenAgent.isUiBubbleBelowHead
+              }"
+              role="status"
+              aria-live="polite"
+              aria-atomic="true"
+            >
+              <div class="onscreen-agent-ui-bubble-text">
+                <p><strong>Drag</strong> me, <strong>tap</strong> me.</p>
+              </div>
+            </div>
             <div
               class="onscreen-agent-ui-bubble"
               x-show="$store.onscreenAgent.isUiBubbleMounted"

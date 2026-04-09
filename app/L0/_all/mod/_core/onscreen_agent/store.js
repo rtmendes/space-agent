@@ -18,7 +18,8 @@ import {
 } from "/mod/_core/onscreen_agent/attachments.js";
 
 const CONFIG_PERSIST_DELAY_MS = 180;
-const AGENT_IDLE_HINT_DELAY_MS = 2000;
+const STARTUP_HINT_DELAY_MS = 2000;
+const STARTUP_HINT_VISIBLE_MS = 3000;
 const COMPACT_MODE_TOP_EDGE_THRESHOLD_EM = 10;
 const DISPLAY_MODE_FULL = "full";
 const DISPLAY_MODE_COMPACT = "compact";
@@ -45,7 +46,6 @@ const UI_BUBBLE_AUTO_HIDE_PER_CHAR_MS = 28;
 const UI_BUBBLE_AUTO_HIDE_PER_WORD_MS = 260;
 const UI_BUBBLE_ENTER_DURATION_MS = 420;
 const UI_BUBBLE_EXIT_DURATION_MS = 180;
-const IDLE_HINT_BUBBLE_TEXT = "**Drag** me, **tap** me.";
 const HISTORY_DIALOG_ELEMENT_ID = "onscreen-agent-history-dialog";
 const RAW_DIALOG_ELEMENT_ID = "onscreen-agent-raw-dialog";
 const SETTINGS_DIALOG_ELEMENT_ID = "onscreen-agent-settings-dialog";
@@ -856,9 +856,7 @@ const model = {
   historyResizeState: null,
   historyText: "",
   historyTokenCount: 0,
-  hasInteracted: false,
   initializationPromise: null,
-  interactionHintTimer: 0,
   isAttachmentDragActive: false,
   isCompactingHistory: false,
   isComposerActionMenuVisible: false,
@@ -900,6 +898,9 @@ const model = {
   resizeHandler: null,
   runtime: null,
   runtimeSystemPrompt: "",
+  hasStartupHintResolved: false,
+  isStartupHintVisible: false,
+  startupHintTimer: 0,
   streamingRenderFrame: 0,
   dragMoveHandler: null,
   dragEndHandler: null,
@@ -1723,8 +1724,54 @@ const model = {
     }
   },
 
-  clearInteractionHintTimer() {
-    this.interactionHintTimer = clearTimer(this.interactionHintTimer);
+  clearStartupHintTimer() {
+    this.startupHintTimer = clearTimer(this.startupHintTimer);
+  },
+
+  resolveStartupHint() {
+    this.hasStartupHintResolved = true;
+    this.clearStartupHintTimer();
+    this.isStartupHintVisible = false;
+  },
+
+  scheduleStartupHint() {
+    this.clearStartupHintTimer();
+
+    if (this.hasStartupHintResolved) {
+      return;
+    }
+
+    this.startupHintTimer = window.setTimeout(() => {
+      this.startupHintTimer = 0;
+
+      if (this.hasStartupHintResolved) {
+        return;
+      }
+
+      if (!this.isShellVisible || !this.refs.shell) {
+        this.startupHintTimer = window.setTimeout(() => {
+          this.startupHintTimer = 0;
+          this.scheduleStartupHint();
+        }, 100);
+        return;
+      }
+
+      this.hasStartupHintResolved = true;
+      this.isStartupHintVisible = true;
+
+      this.startupHintTimer = window.setTimeout(() => {
+        this.startupHintTimer = 0;
+        this.isStartupHintVisible = false;
+      }, STARTUP_HINT_VISIBLE_MS);
+    }, STARTUP_HINT_DELAY_MS);
+  },
+
+  handleShellPointerDown(event) {
+    if (event && event.isTrusted === false) {
+      return;
+    }
+
+    this.resolveStartupHint();
   },
 
   clearUiBubbleEnterTimer() {
@@ -1756,15 +1803,6 @@ const model = {
       this.displayModeTransitionTimer = 0;
       this.displayModeTransitionPhase = "";
     }, DISPLAY_MODE_TRANSITION_DURATION_MS);
-  },
-
-  recordInteraction(options = {}) {
-    this.hasInteracted = true;
-    this.clearInteractionHintTimer();
-
-    if (options.hideBubble === true) {
-      this.dismissUiBubble();
-    }
   },
 
   showCompactAssistantReplyBubble(assistantContent, options = {}) {
@@ -1814,24 +1852,6 @@ const model = {
     if (this.status !== nextStatus) {
       this.status = nextStatus;
     }
-  },
-
-  scheduleInteractionHint() {
-    this.clearInteractionHintTimer();
-
-    if (this.hasInteracted) {
-      return;
-    }
-
-    this.interactionHintTimer = window.setTimeout(() => {
-      this.interactionHintTimer = 0;
-
-      if (this.hasInteracted || !this.isCompactMode || this.hiddenEdge || this.dragState?.moved === true) {
-        return;
-      }
-
-      this.showUiBubble(IDLE_HINT_BUBBLE_TEXT);
-    }, AGENT_IDLE_HINT_DELAY_MS);
   },
 
   showUiBubble(text, hideAfterMs = 0) {
@@ -2188,10 +2208,6 @@ const model = {
             reflow: true
           });
         });
-
-        if (this.hasInteracted) {
-          this.focusInput();
-        }
       } catch (error) {
         this.ensurePosition({
           persist: false,
@@ -2295,7 +2311,7 @@ const model = {
       reflow: true
     });
     this.renderUiBubbleContent();
-    this.scheduleInteractionHint();
+    this.scheduleStartupHint();
     void this.init();
   },
 
@@ -2357,7 +2373,7 @@ const model = {
     this.cancelStreamingMessageRender();
     this.cancelPendingStreamingDelta();
     this.resetAttachmentDragState();
-    this.clearInteractionHintTimer();
+    this.clearStartupHintTimer();
     this.clearUiBubbleEnterTimer();
     this.clearUiBubbleAutoHideTimer();
     this.clearUiBubbleExitTimer();
@@ -2366,6 +2382,7 @@ const model = {
     this.activeUiBubble = null;
     this.compactAssistantBubble = null;
     this.compactAssistantBubbleMessageId = "";
+    this.isStartupHintVisible = false;
     this.isUiBubbleMounted = false;
     this.uiBubblePhase = "";
     this.uiBubbleText = "";
@@ -2415,9 +2432,7 @@ const model = {
 
     this.cleanupHistoryResize();
     this.closeComposerActionMenu();
-    this.recordInteraction({
-      hideBubble: true
-    });
+    this.dismissUiBubble();
 
     const target = event.currentTarget;
 
@@ -2508,7 +2523,6 @@ const model = {
 
     this.cleanupDrag();
     this.cleanupHistoryResize();
-    this.recordInteraction();
 
     this.historyResizeState = {
       historyBelow: this.isHistoryBelow,
@@ -2562,12 +2576,10 @@ const model = {
   },
 
   showFullMode(options = {}) {
-    this.recordInteraction();
     this.setDisplayMode(DISPLAY_MODE_FULL, options);
   },
 
   showCompactMode(options = {}) {
-    this.recordInteraction();
     this.setDisplayMode(DISPLAY_MODE_COMPACT, options);
   },
 
@@ -2938,7 +2950,6 @@ const model = {
   },
 
   handleDraftInput(event) {
-    this.recordInteraction();
     this.syncDraft(event.target.value);
   },
 
@@ -3033,8 +3044,6 @@ const model = {
       return;
     }
 
-    this.recordInteraction();
-
     if (this.composerActionMenuAnchor === anchor) {
       this.closeComposerActionMenu();
       return;
@@ -3048,7 +3057,6 @@ const model = {
       return;
     }
 
-    this.recordInteraction();
     this.refs.attachmentInput?.click();
   },
 
@@ -3099,7 +3107,6 @@ const model = {
     }
 
     event.preventDefault();
-    this.recordInteraction();
     const droppedFiles = event.dataTransfer?.files;
     this.resetAttachmentDragState();
 
@@ -3142,8 +3149,6 @@ const model = {
   },
 
   handleComposerSubmitAction() {
-    this.recordInteraction();
-
     if (this.isSending) {
       this.queueDraftSubmission();
       return;
@@ -3153,8 +3158,6 @@ const model = {
   },
 
   handleComposerPrimaryAction() {
-    this.recordInteraction();
-
     if (this.isSending) {
       if (this.queueDraftSubmission()) {
         return;
@@ -3181,7 +3184,6 @@ const model = {
   },
 
   openSettingsDialog() {
-    this.recordInteraction();
     this.settingsDraft = {
       ...this.settings
     };
@@ -3255,8 +3257,6 @@ const model = {
   },
 
   async openPromptHistoryDialog() {
-    this.recordInteraction();
-
     try {
       this.flushPendingStreamingDelta();
 

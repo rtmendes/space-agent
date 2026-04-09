@@ -6,6 +6,13 @@
 
 Keep agent orchestration, prompt construction, tool flow, state management, user interaction, and optimistic UX in the browser whenever possible. Server-backed work in this tree should be browser clients for explicit server APIs, not server-side orchestration leaking into the frontend.
 
+Frontend-first policy:
+
+- default to solving product and workflow behavior in `app/`
+- do not propose or implement backend edits just because they feel cleaner from a traditional full-stack perspective
+- only push behavior into the backend when the browser cannot safely enforce it because other users, shared data, auth boundaries, or runtime integrity would otherwise be at risk
+- if such a backend change seems necessary and the user did not explicitly request backend work, stop and ask for permission first, explaining why frontend-only behavior would be insufficient
+
 This is one of the five core docs. It owns app-wide architecture, composition rules, and development principles. Detailed module behavior belongs in deeper module-local docs.
 
 Documentation is top priority for this area. After any change under `app/` or any app-facing contract change owned here, update this file, the closest owning module `AGENTS.md` files, and the relevant supplemental docs under `_core/documentation/docs/` in the same session before finishing.
@@ -16,10 +23,14 @@ Documentation is top priority for this area. After any change under `app/` or an
 
 Current module-local docs in the app tree:
 
+- `app/L0/_all/mod/_core/agent/AGENTS.md`
 - `app/L0/_all/mod/_core/dashboard/AGENTS.md`
 - `app/L0/_all/mod/_core/dashboard_welcome/AGENTS.md`
 - `app/L0/_all/mod/_core/documentation/AGENTS.md`
 - `app/L0/_all/mod/_core/framework/AGENTS.md`
+- `app/L0/_all/mod/_core/pages/AGENTS.md`
+- `app/L0/_all/mod/_core/login_hooks/AGENTS.md`
+- `app/L0/_all/mod/_core/promptinclude/AGENTS.md`
 - `app/L0/_all/mod/_core/router/AGENTS.md`
 - `app/L0/_all/mod/_core/skillset/AGENTS.md`
 - `app/L0/_all/mod/_core/spaces/AGENTS.md`
@@ -54,7 +65,7 @@ Default module-doc section order:
 
 Required contract coverage for app docs:
 
-- entry points and extension seams: page anchors, routed views, `ext/html/` and `ext/js/` files, exported runtime namespaces, iframe boundaries, and route mounts
+- entry points and extension seams: page anchors, routed views, `ext/html/` and `ext/js/` files, module-owned extension metadata folders such as `ext/pages/`, exported runtime namespaces, iframe boundaries, and route mounts
 - state and persistence: stores, `init()` or `mount()` or `unmount()` lifecycle, session or local storage keys, app-file paths, backend endpoints, and background async work
 - component and DOM ownership: which HTML files mount which JS or store files, which components are thin adapters, and which DOM refs or `x-ref` inputs are required
 - visual and style ownership: which CSS is shared versus local, which `_core/visual` primitives are reused, and any mirrored public-shell assets or visual constraints
@@ -78,6 +89,7 @@ When a module later grows multiple independently owned sub-areas, add a local `D
 
 The browser runtime is organized into three layers:
 
+- `app/package.json`: declares the app tree as an ES module package boundary so Node-side infrastructure can import shared browser utilities without fallback reparsing warnings, must keep minimal package metadata because desktop packaging ships that file inside the bundled app tree, and must not be treated as the Electron app root
 - `L0/`: immutable firmware changed through updates
 - `L1/`: runtime-editable group customware
 - `L2/`: runtime-editable user customware
@@ -93,15 +105,19 @@ Current browser entry surfaces are served from `server/pages/`:
 Current major first-party modules under `app/L0/_all/mod/_core/`:
 
 - `framework/`: frontend bootstrap, runtime primitives, component loader, extension system, shared utilities
+- `login_hooks/`: headless authenticated-bootstrap lifecycle hooks for first-login and same-origin `/login` arrival events, with a client-owned `~/meta/login_hooks.json` marker
 - `visual/`: shared visual language, canvas, chrome, buttons, dialog helpers, and conversation rendering primitives
 - `router/`: root routed shell for the authenticated app; route-level frame width, height or scroll policy, and other shell-owned layout overrides belong here rather than in feature modules, but routed pages own their own content padding
 - `admin/`: firmware-backed admin shell and panels
+- `agent/`: routed first-party agent information and user-local personality include editor, kept self-contained inside the module and advertised to the dashboard through `ext/pages/agent.yaml`
 - `documentation/`: supplemental agent-facing documentation docs, the focused-read documentation helper, and the documentation skill that carries the top-level docs map
+- `pages/`: headless page-manifest discovery plus the dashboard-injected pages section, backed by permission-aware `ext/pages/*.yaml` metadata loaded through the shared extension resolver
+- `promptinclude/`: headless promptinclude discovery and onscreen-agent prompt injection for readable `*.system.include.md` and `*.transient.include.md` app files
 - `onscreen_agent/`: floating routed overlay agent and the first-party user-facing agent surface
 - `onscreen_menu/`: top-right routed shell menu extension
 - `skillset/`: first-party reusable onscreen skill packs plus browser helper scripts that those skills import through stable `/mod/...` paths
 - `webllm/`: routed browser-only WebLLM test surface with a module-local worker, vendored browser runtime, compact searchable prebuilt model loading, expert-only compiled custom model loading, and simple throughput reporting
-- `huggingface/`: routed browser-only Hugging Face Transformers.js test surface with a module-local worker, direct Hub model loading, saved local model presets, and simple throughput reporting
+- `huggingface/`: routed browser-only Hugging Face Transformers.js test surface with a module-local singleton runtime manager and worker, direct Hub model loading, a vendored local browser runtime for upstream testing, shared saved-model state reused by the admin agent in the same browser context, and simple throughput reporting
 - `dashboard/`, `dashboard_welcome/`, `spaces/`, and the `space/` compatibility shim: current routed feature surfaces and dashboard-injected surfaces under the router
 
 ## Layer Rules And Module Model
@@ -111,7 +127,7 @@ Current major first-party modules under `app/L0/_all/mod/_core/`:
 - `L2` contains per-user customware; users should only write inside their own `L2/<username>/`
 - the writable `L1` and `L2` layers are logical app paths first; on disk they default to `app/L1` and `app/L2`, but the backend may relocate them to `CUSTOMWARE_PATH/L1` and `CUSTOMWARE_PATH/L2`
 - repo-local `app/L1` and `app/L2` are transient runtime state and are gitignored; do not document repo-owned example content there as if it were durable framework structure
-- `L2/<username>/user.yaml` stores user metadata such as `full_name`; auth state lives under `L2/<username>/meta/`
+- `L2/<username>/user.yaml` stores user metadata such as `full_name`; auth state and small client-owned user lifecycle markers live under `L2/<username>/meta/`
 - groups may include users and other groups, and may declare managers that can write to that group's `L1` area
 - read permissions are explicit: a user can read their own `L2/<username>/`, and can read `L0/<group>/` and `L1/<group>/` for groups they belong to
 - write permissions are explicit: a user can write their own `L2/<username>/`; a user can write `L1/<group>/` only when they manage that group directly or through a managing-group include chain; members of `_admin` can write any `L1/` and `L2/` path; nobody writes `L0/`
@@ -172,7 +188,14 @@ JS extension hooks:
 - JS callers name only the seam; the runtime loads hooks from the module's `ext/js/` tree automatically
 - framework-backed pages expose `_core/framework/initializer.js/initialize`; prefer its `/end` hook for once-per-page shell setup such as analytics bootstrap or `document.head` injections instead of editing page shells
 - use `callJsExtensions("name", data)` only when the seam is an explicit event rather than a function lifecycle
+- `_core/login_hooks` is a first-party example of an explicit event seam: it runs from `_core/framework/initializer.js/initialize/end`, checks `~/meta/login_hooks.json`, then dispatches `_core/login_hooks/first_login` once per user and `_core/login_hooks/any_login` when the authenticated shell was reached from `/login`
 - when a feature module needs onscreen-agent prompt shaping, execution-plan validation, or other module-specific chat behavior for its own helpers, add an `ext/js/_core/onscreen_agent/...` hook from the owning module; do not hardcode feature-specific policy into `_core/onscreen_agent`
+
+Module-owned extension metadata:
+
+- modules may also ship lightweight metadata manifests under other `ext/` folders when that data should follow the same readable-layer permissions and same-path override rules as HTML and JS extensions
+- the current first-party example is `ext/pages/*.yaml`, which the dashboard page index discovers through `/api/extensions_load`
+- keep those metadata manifests small and display-oriented; they are extension-resolved module assets, not a second general-purpose storage system
 
 Resolution and overrides:
 
@@ -249,18 +272,22 @@ Detailed visual subsystem rules now live in `app/L0/_all/mod/_core/visual/AGENTS
 - extend the onscreen overlay through the JS seams documented in `_core/onscreen_agent/AGENTS.md` instead of patching `store.js`, `prompt.js`, `skills.js`, or `api.js` from another module
 - when a style, helper, or runtime contract will be reused by multiple modules, move it into `_core/visual`, `_core/framework`, or another clearly shared owning module
 - do not grow `server/pages/*.html` beyond shell concerns when modules and extension anchors can own the composition
+- do not request server-side endpoints, page-shell logic, or auth-service changes for frontend features unless the browser truly cannot enforce the needed boundary safely
 - do not build new repo-owned first-party app features directly inside transient `L1` or `L2` customware
 
 ## Current Major Module Owners
 
 - `framework/` owns frontend bootstrap and runtime primitives; see `app/L0/_all/mod/_core/framework/AGENTS.md`
+- `login_hooks/` owns frontend-only authenticated bootstrap hooks for first-login and same-origin `/login` arrival events, plus the client-owned `~/meta/login_hooks.json` marker; see `app/L0/_all/mod/_core/login_hooks/AGENTS.md`
 - `router/` owns the authenticated app shell, routing, and routed extension anchors; see `app/L0/_all/mod/_core/router/AGENTS.md`
 - `dashboard/` owns the routed dashboard shell and its dashboard-local extension seam; see `app/L0/_all/mod/_core/dashboard/AGENTS.md`
 - `dashboard_welcome/` owns the dismissible dashboard welcome panel and bundled demo spaces; see `app/L0/_all/mod/_core/dashboard_welcome/AGENTS.md`
 - `documentation/` owns the supplemental documentation tree, the documentation skill that carries its compact docs map, and the focused docs helper used by the onscreen agent; see `app/L0/_all/mod/_core/documentation/AGENTS.md`
+- `agent/` owns the routed agent information page, its local avatar-card styling, and the user-local personality include editor for `~/conf/personality.system.include.md`; see `app/L0/_all/mod/_core/agent/AGENTS.md`
+- `promptinclude/` owns readable prompt-include discovery through `file_paths` plus the onscreen-agent hooks that inject stable prompt-include instructions into the system prompt, append readable `*.system.include.md` file bodies there, and inject discovered `*.transient.include.md` file bodies into transient context; see `app/L0/_all/mod/_core/promptinclude/AGENTS.md`
 - `visual/` owns the shared visual system, reusable presentation primitives, and shared icon-selection modal helpers; see `app/L0/_all/mod/_core/visual/AGENTS.md`
 - `webllm/` owns the routed WebLLM browser-inference test surface, its route-local worker, and its vendored WebLLM browser runtime; see `app/L0/_all/mod/_core/webllm/AGENTS.md`
-- `huggingface/` owns the routed Hugging Face Transformers.js browser-inference test surface, its route-local worker, and its pinned local browser-import shim; see `app/L0/_all/mod/_core/huggingface/AGENTS.md`
+- `huggingface/` owns the routed Hugging Face Transformers.js browser-inference test surface, its route-local worker, and its vendored local browser-runtime shim; see `app/L0/_all/mod/_core/huggingface/AGENTS.md`
 - `admin/` owns the firmware-backed admin shell, panels, and admin-specific skills/runtime glue; see `app/L0/_all/mod/_core/admin/AGENTS.md`
 - `admin/views/agent/` owns the admin-side agent surface; see `app/L0/_all/mod/_core/admin/views/agent/AGENTS.md`
 - `admin/views/files/` owns the firmware-backed file browser; see `app/L0/_all/mod/_core/admin/views/files/AGENTS.md`
@@ -268,6 +295,7 @@ Detailed visual subsystem rules now live in `app/L0/_all/mod/_core/visual/AGENTS
 - `onscreen_agent/` owns the floating routed overlay agent; see `app/L0/_all/mod/_core/onscreen_agent/AGENTS.md`
 - `onscreen_menu/` owns the routed shell menu extension; see `app/L0/_all/mod/_core/onscreen_menu/AGENTS.md`
 - `spaces/` owns the routed spaces canvas, empty-canvas prompt, widget SDK and widget-size ceilings, and persisted centered-coordinate space runtime plus dashboard-facing space metadata such as title, icon, color, and agent instructions; see `app/L0/_all/mod/_core/spaces/AGENTS.md`
+- `pages/` owns `ext/pages/*.yaml` manifest discovery and the dashboard-facing page launcher section; see `app/L0/_all/mod/_core/pages/AGENTS.md`
 
 ## Guidance
 

@@ -16,6 +16,14 @@ function createDesktopRuntimeParamOverrides() {
   };
 }
 
+function createDesktopServerOptions() {
+  return {
+    host: "127.0.0.1",
+    port: 0,
+    runtimeParamOverrides: createDesktopRuntimeParamOverrides()
+  };
+}
+
 function resolveDesktopLaunchPath() {
   return serverRuntime?.runtimeParams?.get?.("SINGLE_USER_APP", false) ? "/enter" : "/";
 }
@@ -65,7 +73,7 @@ function createWindow() {
     mainWindow = null;
   });
 
-  mainWindow.loadURL(`http://${serverRuntime.host}:${serverRuntime.port}${resolveDesktopLaunchPath()}`);
+  mainWindow.loadURL(`${serverRuntime.browserUrl}${resolveDesktopLaunchPath()}`);
   return mainWindow;
 }
 
@@ -87,11 +95,7 @@ function stopServerRuntime() {
 }
 
 async function startDesktop() {
-  serverRuntime = await createAgentServer({
-    host: "127.0.0.1",
-    port: Number(process.env.PORT || 3000),
-    runtimeParamOverrides: createDesktopRuntimeParamOverrides()
-  });
+  serverRuntime = await createAgentServer(createDesktopServerOptions());
 
   await serverRuntime.listen();
   await app.whenReady();
