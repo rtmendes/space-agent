@@ -1,5 +1,9 @@
+const fs = require("node:fs");
 const fsPromises = require("node:fs/promises");
+const { createHash } = require("node:crypto");
 const path = require("node:path");
+const { Readable, Transform } = require("node:stream");
+const { pipeline } = require("node:stream/promises");
 const { pathToFileURL } = require("node:url");
 const { app, BrowserWindow, ipcMain, net, webFrameMain } = require("electron");
 const {
@@ -15,6 +19,9 @@ const {
   resolveDesktopUpdaterLogPath
 } = require("./updater_install_options");
 const {
+  resolveDesktopDebugReleaseAssetUrl,
+  resolveDesktopDebugReleaseTag,
+  resolveDesktopWindowsReleaseArchFallback,
   stageDesktopDebugRelease
 } = require("./updater_debug_release");
 
@@ -723,6 +730,182 @@ async function fetchDesktopUpdateMetadataText(metadataUrl) {
   return await response.text();
 }
 
+async function downloadDesktopUpdateAssetToFile(assetUrl, destinationPath, { onProgress } = {}) {
+  const response = await fetch(assetUrl, {
+    headers: {
+      accept: "application/octet-stream, */*"
+    }
+  });
+
+  if (!response.ok || !response.body) {
+    throw new Error(
+      `Could not download desktop update asset ${assetUrl} (${response.status} ${response.statusText || "Unknown"}).`
+    );
+  }
+
+  const totalBytes = Number(response.headers.get("content-length")) || 0;
+  const destinationDir = path.dirname(destinationPath);
+  const temporaryPath = path.join(destinationDir, `temp-${path.basename(destinationPath)}`);
+  const hash = createHash("sha512");
+  let downloadedBytes = 0;
+
+  await fsPromises.mkdir(destinationDir, {
+    recursive: true
+  });
+  await fsPromises.rm(temporaryPath, {
+    force: true
+  });
+  await fsPromises.rm(destinationPath, {
+    force: true
+  });
+
+  const hashAndProgress = new Transform({
+    transform(chunk, _encoding, callback) {
+      hash.update(chunk);
+      downloadedBytes += chunk.length;
+      onProgress?.({
+        downloadedBytes,
+        totalBytes,
+        progress: totalBytes > 0 ? downloadedBytes / totalBytes : null
+      });
+      callback(null, chunk);
+    }
+  });
+
+  try {
+    await pipeline(Readable.fromWeb(response.body), hashAndProgress, fs.createWriteStream(temporaryPath));
+    await fsPromises.rename(temporaryPath, destinationPath);
+  } catch (error) {
+    await fsPromises.rm(temporaryPath, {
+      force: true
+    });
+    throw error;
+  }
+
+  return {
+    sha512: hash.digest("base64"),
+    size: downloadedBytes
+  };
+}
+
+async function downloadDesktopWindowsUpdateWithArchFallback(autoUpdater) {
+  if (process.platform !== "win32") {
+    return null;
+  }
+
+  const updateInfoAndProvider = autoUpdater?.updateInfoAndProvider;
+  const updateInfo = updateInfoAndProvider?.info || null;
+  const fallback = resolveDesktopWindowsReleaseArchFallback(updateInfo, process.arch);
+  if (!fallback) {
+    return null;
+  }
+
+  const publishConfig = await autoUpdater.configOnDisk.value;
+  const tag = resolveDesktopDebugReleaseTag(updateInfo?.version || "");
+  const installerUrl = resolveDesktopDebugReleaseAssetUrl({
+    publishConfig,
+    tag,
+    fileName: fallback.expectedFileName
+  });
+  const downloadedUpdateHelper = await autoUpdater.getOrCreateDownloadHelper();
+  const pendingDir = downloadedUpdateHelper.cacheDirForPendingUpdate;
+  const destinationPath = path.join(pendingDir, fallback.expectedFileName);
+  const logPath = resolveDesktopUpdaterLogPathForCurrentRun();
+
+  logDesktopUpdateEvent(
+    `Windows release metadata is missing the ${fallback.expectedArch} installer; downloading ${fallback.expectedFileName} directly from the release assets.`
+  );
+  await appendDesktopUpdaterPersistentLog(logPath, "Windows update metadata is missing the current arch installer; using the canonical release asset fallback.", {
+    actualFiles: fallback.actualFiles,
+    currentArch: process.arch,
+    expectedArch: fallback.expectedArch,
+    expectedFileName: fallback.expectedFileName,
+    installerUrl,
+    targetVersion: updateInfo?.version || ""
+  });
+
+  await downloadedUpdateHelper.clear();
+
+  setDesktopUpdateStatus("Downloading update...", "indeterminate");
+  setDesktopUpdateState({
+    state: "downloading",
+    message: "Downloading update...",
+    progress: null,
+    version: formatDesktopDisplayVersion(updateInfo?.version || "")
+  });
+
+  const downloadedFile = await downloadDesktopUpdateAssetToFile(installerUrl, destinationPath, {
+    onProgress({ progress }) {
+      if (!Number.isFinite(progress)) {
+        return;
+      }
+
+      const percent = Math.max(0, Math.min(100, Math.round(progress * 100)));
+      const message = `Downloading update ${percent}%`;
+      setDesktopUpdateStatus(message, progress);
+      setDesktopUpdateState({
+        state: "downloading",
+        message,
+        progress,
+        version: formatDesktopDisplayVersion(updateInfo?.version || "")
+      });
+    }
+  });
+
+  const fileInfo = {
+    url: new URL(installerUrl),
+    info: {
+      url: fallback.expectedFileName,
+      sha512: downloadedFile.sha512,
+      size: String(downloadedFile.size)
+    }
+  };
+  const normalizedUpdateInfo = {
+    ...updateInfo,
+    files: [fileInfo.info],
+    path: fallback.expectedFileName,
+    sha512: downloadedFile.sha512
+  };
+
+  await downloadedUpdateHelper.setDownloadedFile(
+    destinationPath,
+    null,
+    normalizedUpdateInfo,
+    fileInfo,
+    fallback.expectedFileName,
+    true
+  );
+  autoUpdater.updateInfoAndProvider = {
+    info: normalizedUpdateInfo,
+    provider: updateInfoAndProvider.provider
+  };
+
+  await appendDesktopUpdaterPersistentLog(logPath, "Downloaded Windows update using the release-asset arch fallback.", {
+    currentArch: process.arch,
+    expectedArch: fallback.expectedArch,
+    expectedFileName: fallback.expectedFileName,
+    installerUrl,
+    sha512: downloadedFile.sha512,
+    size: downloadedFile.size,
+    targetVersion: normalizedUpdateInfo.version || ""
+  });
+
+  const version = formatDesktopDisplayVersion(normalizedUpdateInfo.version);
+  setDesktopUpdateStatus("Update ready to install");
+  setDesktopUpdateState({
+    state: "downloaded",
+    message: version ? `Update ${version} is ready to install.` : "Update ready to install.",
+    progress: null,
+    version
+  });
+
+  return {
+    ok: true,
+    status: "downloaded",
+    version
+  };
+}
+
 async function stageDesktopDebugReinstall(payload = {}) {
   if (!shouldEnableDesktopAutoUpdate()) {
     return { ok: false, reason: "unavailable" };
@@ -913,6 +1096,11 @@ async function downloadDesktopUpdate() {
 
   desktopUpdateDownloadPromise = (async () => {
     try {
+      const windowsArchFallbackResult = await downloadDesktopWindowsUpdateWithArchFallback(autoUpdater);
+      if (windowsArchFallbackResult) {
+        return windowsArchFallbackResult;
+      }
+
       await autoUpdater.downloadUpdate();
       return {
         ok: true,

@@ -10,6 +10,104 @@ const MAC_RELEASE_METADATA_FILE = "metadata-latest-mac.yml";
 const LINUX_RELEASE_METADATA_FILE = "metadata-latest-linux.yml";
 const LINUX_ARM64_RELEASE_METADATA_FILE = "metadata-latest-linux-arm64.yml";
 
+function normalizeDesktopReleaseAssetVersion(version = "") {
+  const normalizedVersion = String(version || "").trim().replace(/^v/u, "");
+  if (!normalizedVersion) {
+    throw new Error("Desktop release asset resolution requires a non-empty version.");
+  }
+
+  if (/^\d+\.\d+$/u.test(normalizedVersion)) {
+    return normalizedVersion;
+  }
+
+  const parsedVersion = semver.parse(normalizedVersion);
+  if (!parsedVersion) {
+    throw new Error(`Desktop release asset resolution received an invalid version "${normalizedVersion}".`);
+  }
+
+  if (!parsedVersion.prerelease.length && !parsedVersion.build.length && parsedVersion.patch === 0) {
+    return `${parsedVersion.major}.${parsedVersion.minor}`;
+  }
+
+  return parsedVersion.version;
+}
+
+function normalizeDesktopWindowsReleaseArch(arch = process.arch) {
+  const normalizedArch = String(arch || "").trim().toLowerCase();
+  if (!normalizedArch) {
+    throw new Error("Desktop Windows release asset resolution requires a non-empty arch.");
+  }
+
+  if (normalizedArch === "arm64") {
+    return "arm64";
+  }
+
+  if (normalizedArch === "x64" || normalizedArch === "amd64" || normalizedArch === "x86_64") {
+    return "x64";
+  }
+
+  throw new Error(`Desktop Windows release asset resolution does not support arch "${arch}".`);
+}
+
+function resolveDesktopWindowsReleaseAssetArch(value = "") {
+  const normalizedValue = String(value || "").trim().toLowerCase();
+  if (!normalizedValue) {
+    return "";
+  }
+
+  if (normalizedValue.includes("arm64")) {
+    return "arm64";
+  }
+
+  if (normalizedValue.includes("x64")) {
+    return "x64";
+  }
+
+  return "";
+}
+
+function resolveDesktopWindowsReleaseAssetFileName({
+  version = "",
+  arch = process.arch
+} = {}) {
+  return `Space-Agent-${normalizeDesktopReleaseAssetVersion(version)}-windows-${normalizeDesktopWindowsReleaseArch(arch)}.exe`;
+}
+
+function getDesktopWindowsReleaseFiles(updateInfo = {}) {
+  return (Array.isArray(updateInfo?.files) ? updateInfo.files : [])
+    .filter((file) => String(file?.url || "").trim().toLowerCase().endsWith(".exe"));
+}
+
+function findDesktopWindowsReleaseFile(updateInfo = {}, arch = process.arch) {
+  const normalizedArch = normalizeDesktopWindowsReleaseArch(arch);
+  return (
+    getDesktopWindowsReleaseFiles(updateInfo).find((file) => {
+      return resolveDesktopWindowsReleaseAssetArch(file?.url || "") === normalizedArch;
+    }) || null
+  );
+}
+
+function resolveDesktopWindowsReleaseArchFallback(updateInfo = {}, arch = process.arch) {
+  const windowsFiles = getDesktopWindowsReleaseFiles(updateInfo);
+  if (!windowsFiles.length) {
+    return null;
+  }
+
+  const normalizedArch = normalizeDesktopWindowsReleaseArch(arch);
+  if (findDesktopWindowsReleaseFile(updateInfo, normalizedArch)) {
+    return null;
+  }
+
+  return {
+    actualFiles: windowsFiles.map((file) => String(file?.url || "").trim()).filter(Boolean),
+    expectedArch: normalizedArch,
+    expectedFileName: resolveDesktopWindowsReleaseAssetFileName({
+      version: updateInfo?.version || "",
+      arch: normalizedArch
+    })
+  };
+}
+
 function normalizeDesktopDebugReleaseVersion(requestedVersion, currentVersion = "") {
   const fallbackVersion = String(currentVersion || "").trim();
   const rawValue = String(requestedVersion || fallbackVersion).trim().replace(/^v/u, "");
@@ -245,9 +343,16 @@ module.exports = {
   WINDOWS_RELEASE_METADATA_FILE,
   compareDesktopDebugReleaseVersions,
   createDesktopDebugReleaseProvider,
+  findDesktopWindowsReleaseFile,
+  getDesktopWindowsReleaseFiles,
   getDesktopDebugReleaseBlockMapFiles,
+  normalizeDesktopReleaseAssetVersion,
   normalizeDesktopDebugReleaseVersion,
+  normalizeDesktopWindowsReleaseArch,
   parseDesktopDebugReleaseInfo,
+  resolveDesktopWindowsReleaseArchFallback,
+  resolveDesktopWindowsReleaseAssetArch,
+  resolveDesktopWindowsReleaseAssetFileName,
   resolveDesktopDebugComparisonVersion,
   resolveDesktopDebugGitHubBasePath,
   resolveDesktopDebugGitHubBaseUrl,

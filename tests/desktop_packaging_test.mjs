@@ -32,7 +32,12 @@ const {
 const {
   LINUX_ARM64_RELEASE_METADATA_FILE,
   WINDOWS_RELEASE_METADATA_FILE,
+  findDesktopWindowsReleaseFile,
+  normalizeDesktopReleaseAssetVersion,
   normalizeDesktopDebugReleaseVersion,
+  normalizeDesktopWindowsReleaseArch,
+  resolveDesktopWindowsReleaseArchFallback,
+  resolveDesktopWindowsReleaseAssetFileName,
   resolveDesktopDebugReleaseAssetUrl,
   resolveDesktopDebugReleaseMetadataFileName,
   resolveDesktopDebugReleaseTag,
@@ -195,6 +200,70 @@ test("packaged desktop debug reinstall resolves platform metadata files", () => 
       arch: "arm64"
     }),
     LINUX_ARM64_RELEASE_METADATA_FILE
+  );
+});
+
+test("packaged desktop updater keeps canonical Windows release asset naming stable across archs", () => {
+  assert.equal(normalizeDesktopReleaseAssetVersion("0.52.0"), "0.52");
+  assert.equal(normalizeDesktopReleaseAssetVersion("0.52.3"), "0.52.3");
+  assert.equal(normalizeDesktopWindowsReleaseArch("amd64"), "x64");
+  assert.equal(normalizeDesktopWindowsReleaseArch("arm64"), "arm64");
+  assert.equal(
+    resolveDesktopWindowsReleaseAssetFileName({
+      version: "0.52.0",
+      arch: "x64"
+    }),
+    "Space-Agent-0.52-windows-x64.exe"
+  );
+  assert.equal(
+    resolveDesktopWindowsReleaseAssetFileName({
+      version: "0.52.0",
+      arch: "arm64"
+    }),
+    "Space-Agent-0.52-windows-arm64.exe"
+  );
+});
+
+test("packaged desktop updater detects Windows metadata that is missing the current arch installer", () => {
+  const armOnlyInfo = {
+    version: "0.52.0",
+    files: [
+      {
+        url: "Space-Agent-0.52-windows-arm64.exe",
+        sha512: "abc123",
+        size: "1"
+      }
+    ]
+  };
+
+  assert.equal(findDesktopWindowsReleaseFile(armOnlyInfo, "x64"), null);
+  assert.equal(findDesktopWindowsReleaseFile(armOnlyInfo, "arm64")?.url, "Space-Agent-0.52-windows-arm64.exe");
+  assert.deepEqual(resolveDesktopWindowsReleaseArchFallback(armOnlyInfo, "x64"), {
+    actualFiles: ["Space-Agent-0.52-windows-arm64.exe"],
+    expectedArch: "x64",
+    expectedFileName: "Space-Agent-0.52-windows-x64.exe"
+  });
+  assert.equal(resolveDesktopWindowsReleaseArchFallback(armOnlyInfo, "arm64"), null);
+  assert.equal(
+    resolveDesktopWindowsReleaseArchFallback(
+      {
+        version: "0.52.0",
+        files: [
+          {
+            url: "Space-Agent-0.52-windows-arm64.exe",
+            sha512: "abc123",
+            size: "1"
+          },
+          {
+            url: "Space-Agent-0.52-windows-x64.exe",
+            sha512: "def456",
+            size: "2"
+          }
+        ]
+      },
+      "x64"
+    ),
+    null
   );
 });
 
