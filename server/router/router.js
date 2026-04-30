@@ -283,6 +283,7 @@ function createRequestHandler(options) {
     appDir,
     assetDir,
     auth,
+    ensureUserFileIndex,
     host,
     mutationSync,
     pagesDir,
@@ -314,8 +315,9 @@ function createRequestHandler(options) {
       appendSetCookieHeader(res, createClearedStateVersionCookieHeader(req));
     }
 
-    const requestContext = createRequestContext({
+    const requestContext = await createRequestContext({
       auth,
+      ensureUserFileIndex,
       req,
       requestUrl
     });
@@ -352,6 +354,7 @@ function createRequestHandler(options) {
           projectRoot,
           runtimeParams,
           stateSystem,
+          ensureUserFileIndex,
           requestContext,
           user: requestContext.user
         });
@@ -362,7 +365,8 @@ function createRequestHandler(options) {
         if (!ensureAuthenticatedOrRespond(res, requestContext, auth)) {
           return;
         }
-        handleModuleRequest(res, requestUrl.pathname, {
+        await handleModuleRequest(res, requestUrl.pathname, {
+          ensureUserFileIndex,
           headers: req.headers,
           projectRoot,
           requestUrl,
@@ -377,7 +381,8 @@ function createRequestHandler(options) {
         if (!ensureAuthenticatedOrRespond(res, requestContext, auth)) {
           return;
         }
-        handleAppFetchRequest(res, requestUrl.pathname, {
+        await handleAppFetchRequest(res, requestUrl.pathname, {
+          ensureUserFileIndex,
           projectRoot,
           runtimeParams,
           username: requestContext.user.username,

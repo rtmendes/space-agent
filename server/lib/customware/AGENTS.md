@@ -76,7 +76,8 @@ Important rules:
 
 - `layer_limit.js` constrains module and extension resolution through `maxLayer`
 - `layer_limit.js` also accepts `X-Space-Max-Layer` as an explicit request-level override source for module and extension fetches
-- worker-side module lookup must read replicated `file_index` and group shards from the shared `stateSystem`; only the primary watchdog owns filesystem scanning and shard publication
+- worker-side module lookup must read shared `file_index` and group shards from the shared `stateSystem`; only the primary watchdog owns filesystem scanning and shard publication, and `L2/<user>` file-index shards are loaded on demand
+- auth-only request context does not imply the authenticated user's full L2 shard is loaded; file, module, extension, quota, and direct app-file callers must use the router-provided full-shard ensure hook before relying on user-owned file-index entries
 - frontend HTML anchors resolve through module `ext/html/...` paths and JS hooks resolve through module `ext/js/...` paths
 - modules may also resolve other extension-owned assets through the same ranked `ext/...` override model when the frontend calls `extensions_load` directly; the current first-party example is `ext/panels/*.yaml`, and grouped lookups preserve request order while returning each request's normalized `patterns` with its resolved `extensions`
 - exact same override keys replace lower-ranked entries
@@ -106,10 +107,12 @@ Rules:
 - keep permission, duplication, overlap, path-normalization, and logical-to-disk resolution logic centralized here
 - frontend callers should derive writable roots from the canonical permission rules and the `user_self_info` identity fields instead of depending on a serialized scope payload
 - callers that need server-confirmed writable discovery may pass `access: "write"` or `writableOnly: true` to `file_list` or `file_paths`; repository pickers may add `gitRepositories: true` with a pattern such as `**/.git/` to receive writable owner roots like `L1/<group>/` and `L2/<user>/`
+- normal request-time `file_paths` discovery must read the caller's relevant `file_index` shards, matching module discovery: readable lookups scan `L0`, readable `L1` group shards, and the authenticated user's demand-loaded `L2` shard, while writable lookups scan only writable owner shards except admin-wide discovery
+- do not route ordinary `file_paths` calls through a full `watchdog.getPaths()` or whole-index sort when the shared `stateSystem` is available; fallback whole-index filtering is only for direct helper callers that do not provide replicated state
 - when `CUSTOMWARE_GIT_HISTORY` is enabled, writable `L1` and `L2` file mutations schedule debounced per-owner Git history commits; in clustered runtime, worker writes defer that scheduling to the primary after it rebuilds the authoritative watchdog state for the changed logical paths
 - debounced owner-root history work must stay off the request path; local-history backends serialize operations per owner repository so primary-owned scheduling does not block the event loop or race the same repo, native keeps Git subprocess work asynchronous, and the isomorphic fallback reuses immutable history-entry and tree caches for repeated Time Travel reads
 - when `USER_FOLDER_SIZE_LIMIT_BYTES` is positive, `file_access.js` must check all app-file writes, copies, moves, and deletes through `user_quota.js` before mutation; projected growth over the cap is rejected, while a user folder already over cap may only perform mutations whose net `L2/<user>/` size delta is negative
-- user-folder quota accounting is cached per resolved `L2/<user>/` root; cache fills and subtree size reads should come from indexed `sizeBytes` metadata in the live `path_index` or replicated `file_index` shards instead of crawling the full user tree, while normal app-file mutations update that cache by byte deltas
+- user-folder quota accounting is cached per resolved `L2/<user>/` root; cache fills and subtree size reads should come from indexed `sizeBytes` metadata in the loaded `file_index` shard instead of crawling the full user tree, while normal app-file mutations update that cache by byte deltas
 - other backend app-path mutation callers invalidate the affected cache through `recordAppPathMutations`, and Git history commits, rollback, and revert also invalidate affected L2 quota cache entries because backend `.git` metadata can change outside the app-file mutation delta
 
 `module_manage.js` is the canonical entry point for:

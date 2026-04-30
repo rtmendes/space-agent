@@ -12,6 +12,7 @@ import {
   createPasswordVerifier,
   decodeBase64Url,
   encodeBase64Url,
+  inspectPasswordRecord,
   migratePasswordVerifierRecord,
   openPasswordVerifierRecord,
   verifyLoginProof,
@@ -95,13 +96,53 @@ function serializeCookie(name, value, attributes = {}) {
   return segments.join("; ");
 }
 
-function createSessionCookieHeader(sessionToken) {
-  return serializeCookie(SESSION_COOKIE_NAME, sessionToken, {
+function createSessionCookieHeader(sessionToken, username = "") {
+  const cookieValue = createSessionCookieValue(username, sessionToken) || String(sessionToken || "");
+
+  return serializeCookie(SESSION_COOKIE_NAME, cookieValue, {
     HttpOnly: true,
     "Max-Age": Math.floor(SESSION_TTL_MS / 1000),
     Path: "/",
     SameSite: "Strict"
   });
+}
+
+function createSessionCookieValue(username, sessionToken) {
+  const normalizedUsername = normalizeEntityId(username);
+  const normalizedSessionToken = normalizeSessionToken(sessionToken);
+
+  if (!normalizedUsername || !normalizedSessionToken) {
+    return "";
+  }
+
+  return `${Buffer.from(normalizedUsername, "utf8").toString("base64url")}.${normalizedSessionToken}`;
+}
+
+function parseSessionCookieValue(value) {
+  const rawValue = String(value || "").trim();
+  const separatorIndex = rawValue.indexOf(".");
+
+  if (separatorIndex <= 0) {
+    return {
+      sessionToken: normalizeSessionToken(rawValue),
+      username: ""
+    };
+  }
+
+  const encodedUsername = rawValue.slice(0, separatorIndex);
+  const sessionToken = normalizeSessionToken(rawValue.slice(separatorIndex + 1));
+  let username = "";
+
+  try {
+    username = normalizeEntityId(Buffer.from(encodedUsername, "base64url").toString("utf8"));
+  } catch {
+    username = "";
+  }
+
+  return {
+    sessionToken,
+    username
+  };
 }
 
 function createClearedSessionCookieHeader() {
@@ -432,11 +473,23 @@ export function createAuthService(options = {}) {
     throw new Error("createAuthService() requires a shared state system.");
   }
 
-  const challengeStore = createStateBackedLoginChallengeStore(stateSystem);
-  const enableInitialization = options.enableInitialization !== false;
   const projectRoot = String(options.projectRoot || "");
   const runtimeParams = options.runtimeParams || null;
   const watchdog = options.watchdog || null;
+  const challengeStore = createStateBackedLoginChallengeStore(stateSystem);
+  const commitProjectPathChanges =
+    typeof options.commitProjectPathChanges === "function"
+      ? options.commitProjectPathChanges
+      : async (projectPaths = []) => {
+          if (watchdog && typeof watchdog.applyProjectPathChanges === "function") {
+            await watchdog.applyProjectPathChanges(projectPaths);
+          }
+        };
+  const enableInitialization = options.enableInitialization !== false;
+  const ensureUserAuthState =
+    typeof options.ensureUserAuthState === "function" ? options.ensureUserAuthState : async () => {};
+  const loadedAuthStateUsers = new Set();
+  const normalizedAuthUsers = new Set();
   let initialized = false;
 
   function getUserIndex() {
@@ -445,6 +498,98 @@ export function createAuthService(options = {}) {
     }
 
     return watchdog.getIndex("user_index") || createEmptyUserIndex();
+  }
+
+  async function normalizeUserAuthFiles(username) {
+    const normalizedUsername = normalizeEntityId(username);
+
+    if (!normalizedUsername) {
+      return false;
+    }
+
+    if (normalizedAuthUsers.has(normalizedUsername)) {
+      return false;
+    }
+
+    normalizedAuthUsers.add(normalizedUsername);
+
+    try {
+      let changed = false;
+      const changedProjectPaths = new Set();
+      const passwordRecord = readUserPasswordVerifier(projectRoot, normalizedUsername, runtimeParams);
+      const currentLogins = readUserLogins(projectRoot, normalizedUsername, runtimeParams);
+      const passwordRecordInfo = inspectPasswordRecord(passwordRecord);
+      const migratedPasswordRecord =
+        passwordRecordInfo?.format === "sealed"
+          ? null
+          : migratePasswordVerifierRecord(passwordRecord, authKeys);
+      const sanitizedLogins = sanitizeStoredLogins(
+        currentLogins,
+        normalizedUsername,
+        authKeys
+      );
+
+      if (
+        migratedPasswordRecord &&
+        JSON.stringify(passwordRecord || {}) !== JSON.stringify(migratedPasswordRecord)
+      ) {
+        writeUserPasswordVerifier(projectRoot, normalizedUsername, migratedPasswordRecord, runtimeParams);
+        recordAppPathMutations(
+          {
+            projectRoot,
+            runtimeParams
+          },
+          [`/app/L2/${normalizedUsername}/meta/password.json`]
+        );
+        changedProjectPaths.add(`/app/L2/${normalizedUsername}/meta/password.json`);
+        changed = true;
+      }
+
+      if (JSON.stringify(currentLogins || {}) !== JSON.stringify(sanitizedLogins)) {
+        writeUserLogins(projectRoot, normalizedUsername, sanitizedLogins, runtimeParams);
+        recordAppPathMutations(
+          {
+            projectRoot,
+            runtimeParams
+          },
+          [`/app/L2/${normalizedUsername}/meta/logins.json`]
+        );
+        changedProjectPaths.add(`/app/L2/${normalizedUsername}/meta/logins.json`);
+        changed = true;
+      }
+
+      if (changed && changedProjectPaths.size > 0) {
+        await commitProjectPathChanges([...changedProjectPaths]);
+      }
+
+      return changed;
+    } catch (error) {
+      normalizedAuthUsers.delete(normalizedUsername);
+      throw error;
+    }
+  }
+
+  async function ensureUserIndexLoaded(username, options = {}) {
+    const normalizedUsername = normalizeEntityId(username);
+
+    if (!normalizedUsername) {
+      return "";
+    }
+
+    const userRecord = getUserIndex().getUser(normalizedUsername);
+    const shouldLoadAuthState =
+      options.force === true || (!userRecord && !loadedAuthStateUsers.has(normalizedUsername));
+
+    if (shouldLoadAuthState) {
+      await ensureUserAuthState(normalizedUsername);
+      loadedAuthStateUsers.add(normalizedUsername);
+    }
+
+    if (options.normalizeAuthFiles !== false) {
+      await normalizeUserAuthFiles(normalizedUsername);
+    }
+
+    return normalizedUsername;
   }
 
   function readCurrentPasswordVerifier(username) {
@@ -515,8 +660,9 @@ export function createAuthService(options = {}) {
     };
   }
 
-  function resolveUserFromCookies(cookies = {}, headers = {}) {
+  async function resolveUserFromCookies(cookies = {}, headers = {}) {
     if (isSingleUserApp(runtimeParams)) {
+      await ensureUserIndexLoaded(SINGLE_USER_APP_USERNAME);
       return createSingleUser();
     }
 
@@ -526,7 +672,9 @@ export function createAuthService(options = {}) {
       return createAnonymousUser();
     }
 
-    const sessionToken = normalizeSessionToken(rawSessionToken);
+    const parsedSessionCookie = parseSessionCookieValue(rawSessionToken);
+    const sessionToken = parsedSessionCookie.sessionToken;
+    const usernameHint = parsedSessionCookie.username;
 
     if (!sessionToken) {
       return createAnonymousUser({
@@ -535,6 +683,16 @@ export function createAuthService(options = {}) {
         source: "invalid-session-cookie-format"
       });
     }
+
+    if (!usernameHint) {
+      return createAnonymousUser({
+        sessionToken,
+        shouldClearSessionCookie: true,
+        source: "missing-session-username"
+      });
+    }
+
+    await ensureUserIndexLoaded(usernameHint);
 
     const userIndex = getUserIndex();
     const sessionVerifier = createSessionVerifier(sessionToken, authKeys);
@@ -596,6 +754,9 @@ export function createAuthService(options = {}) {
 
     const normalizedUsername = normalizeEntityId(username);
     const normalizedClientNonce = normalizeNonce(clientNonce);
+    await ensureUserIndexLoaded(normalizedUsername, {
+      force: true
+    });
     const userIndex = getUserIndex();
     const userRecord = userIndex.getUser(normalizedUsername);
     const verifier =
@@ -655,6 +816,8 @@ export function createAuthService(options = {}) {
     if (!challenge) {
       throw new Error("Login challenge expired. Try again.");
     }
+
+    await ensureUserIndexLoaded(challenge.username);
 
     const verifier = getUserIndex().getUser(challenge.username)?.hasPassword
       ? readCurrentPasswordVerifier(challenge.username)
@@ -721,6 +884,8 @@ export function createAuthService(options = {}) {
         username: SINGLE_USER_APP_USERNAME
       };
     }
+
+    await ensureUserIndexLoaded(username);
 
     return persistSessionForUser(username, {
       req,
@@ -820,64 +985,9 @@ export function createAuthService(options = {}) {
 
     const userIndex = getUserIndex();
     const usernames = Object.keys(userIndex.users || {});
-    let changed = false;
-    const changedProjectPaths = new Set();
 
-    usernames.forEach((username) => {
-      const normalizedUsername = normalizeEntityId(username);
-
-      if (!normalizedUsername) {
-        return;
-      }
-
-      const passwordRecord = readUserPasswordVerifier(projectRoot, normalizedUsername, runtimeParams);
-      const currentLogins = readUserLogins(projectRoot, normalizedUsername, runtimeParams);
-      const migratedPasswordRecord = migratePasswordVerifierRecord(passwordRecord, authKeys);
-      const sanitizedLogins = sanitizeStoredLogins(
-        currentLogins,
-        normalizedUsername,
-        authKeys
-      );
-
-      if (
-        migratedPasswordRecord &&
-        JSON.stringify(passwordRecord || {}) !== JSON.stringify(migratedPasswordRecord)
-      ) {
-        writeUserPasswordVerifier(projectRoot, normalizedUsername, migratedPasswordRecord, runtimeParams);
-        recordAppPathMutations(
-          {
-            projectRoot,
-            runtimeParams
-          },
-          [`/app/L2/${normalizedUsername}/meta/password.json`]
-        );
-        changedProjectPaths.add(`/app/L2/${normalizedUsername}/meta/password.json`);
-        changed = true;
-      }
-
-      if (
-        JSON.stringify(currentLogins || {}) !== JSON.stringify(sanitizedLogins)
-      ) {
-        writeUserLogins(projectRoot, normalizedUsername, sanitizedLogins, runtimeParams);
-        recordAppPathMutations(
-          {
-            projectRoot,
-            runtimeParams
-          },
-          [`/app/L2/${normalizedUsername}/meta/logins.json`]
-        );
-        changedProjectPaths.add(`/app/L2/${normalizedUsername}/meta/logins.json`);
-        changed = true;
-      }
-    });
-
-    if (
-      changed &&
-      watchdog &&
-      typeof watchdog.applyProjectPathChanges === "function" &&
-      changedProjectPaths.size > 0
-    ) {
-      await watchdog.applyProjectPathChanges([...changedProjectPaths]);
+    for (const username of usernames) {
+      await normalizeUserAuthFiles(username);
     }
   }
 

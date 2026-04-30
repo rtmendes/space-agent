@@ -124,7 +124,16 @@ function sendProcessMessage(target, message) {
 
 function createRemoteStateClient(callPrimaryState, applySyncPayload = null) {
   async function maybeApplySyncPayload(payload) {
-    if (!applySyncPayload || (!payload?.delta && !payload?.snapshot)) {
+    if (
+      !applySyncPayload ||
+      (!payload?.delta &&
+        !payload?.snapshot &&
+        !(Array.isArray(payload?.lazyFileIndexShards) && payload.lazyFileIndexShards.length > 0) &&
+        !(
+          Array.isArray(payload?.lazyFileIndexInvalidations) &&
+          payload.lazyFileIndexInvalidations.length > 0
+        ))
+    ) {
       return payload;
     }
 
@@ -157,6 +166,20 @@ function createRemoteStateClient(callPrimaryState, applySyncPayload = null) {
         area,
         id
       });
+    },
+    async ensureFileIndexShardLoaded(shardId, options = {}) {
+      const payload = await callPrimaryState("ensureFileIndexShardLoaded", {
+        options,
+        shardId
+      });
+      return maybeApplySyncPayload(payload);
+    },
+    async ensureUserAuthStateLoaded(username, options = {}) {
+      const payload = await callPrimaryState("ensureUserAuthStateLoaded", {
+        options,
+        username
+      });
+      return maybeApplySyncPayload(payload);
     },
     getSnapshot() {
       return callPrimaryState("getSnapshot");
@@ -353,6 +376,15 @@ async function startClusterWorker() {
         await watchdog.applySnapshot(payload.snapshot, {
           emit: false
         });
+        if (Array.isArray(payload.lazyFileIndexShards) && payload.lazyFileIndexShards.length > 0) {
+          await watchdog.applyLazyFileIndexShards(payload.lazyFileIndexShards);
+        }
+        if (
+          Array.isArray(payload.lazyFileIndexInvalidations) &&
+          payload.lazyFileIndexInvalidations.length > 0
+        ) {
+          await watchdog.applyLazyFileIndexInvalidations(payload.lazyFileIndexInvalidations);
+        }
         return;
       }
 
@@ -360,6 +392,16 @@ async function startClusterWorker() {
         await watchdog.applyStateDelta(payload.delta, {
           emit: false
         });
+      }
+
+      if (Array.isArray(payload.lazyFileIndexShards) && payload.lazyFileIndexShards.length > 0) {
+        await watchdog.applyLazyFileIndexShards(payload.lazyFileIndexShards);
+      }
+      if (
+        Array.isArray(payload.lazyFileIndexInvalidations) &&
+        payload.lazyFileIndexInvalidations.length > 0
+      ) {
+        await watchdog.applyLazyFileIndexInvalidations(payload.lazyFileIndexInvalidations);
       }
     } catch (error) {
       if (error?.code !== "STATE_VERSION_GAP") {
@@ -466,6 +508,7 @@ async function startClusterWorker() {
 
         await applyPrimarySyncPayload({
           delta: message.delta,
+          lazyFileIndexInvalidations: message.lazyFileIndexInvalidations,
           projectPaths: message.projectPaths
         });
         return;
@@ -561,8 +604,45 @@ async function startClusterWorker() {
     }
   };
 
+  async function ensureUserFileIndex(username) {
+    const normalizedUsername = String(username || "").trim();
+
+    if (!normalizedUsername || !watchdog) {
+      return;
+    }
+
+    const shardId = `L2/${normalizedUsername}`;
+    if (
+      typeof watchdog.isFileIndexShardCurrent === "function" &&
+      watchdog.isFileIndexShardCurrent(shardId)
+    ) {
+      return;
+    }
+
+    await primaryState.ensureFileIndexShardLoaded(shardId, {
+      knownVersion:
+        typeof watchdog.getFileIndexShardVersion === "function"
+          ? watchdog.getFileIndexShardVersion(shardId)
+          : 0
+    });
+  }
+
+  async function ensureUserAuthState(username) {
+    const normalizedUsername = String(username || "").trim();
+
+    if (!normalizedUsername) {
+      return;
+    }
+
+    await primaryState.ensureUserAuthStateLoaded(normalizedUsername);
+  }
+
   const auth = createAuthService({
+    commitProjectPathChanges: async (projectPaths = []) => {
+      await mutationSync.commitProjectPaths(projectPaths);
+    },
     enableInitialization: false,
+    ensureUserAuthState,
     projectRoot: bootstrap.projectRoot,
     runtimeParams,
     stateSystem: primaryState,
@@ -575,6 +655,7 @@ async function startClusterWorker() {
     assetDir: bootstrap.assetDir,
     browserHost: bootstrap.browserHost,
     host: bootstrap.host,
+    ensureUserFileIndex,
     mutationSync,
     pagesDir: bootstrap.pagesDir,
     projectRoot: bootstrap.projectRoot,
@@ -648,9 +729,23 @@ async function startClusteredServer(overrides = {}) {
       type: IPC_MESSAGE_TYPES.STATE_DELTA
     });
   });
+  async function ensureUserAuthState(username) {
+    const normalizedUsername = String(username || "").trim();
+
+    if (!normalizedUsername || !watchdog || typeof watchdog.ensureUserAuthStateLoaded !== "function") {
+      return;
+    }
+
+    await watchdog.ensureUserAuthStateLoaded(normalizedUsername);
+  }
+
   const auth =
     overrides.auth ||
     createAuthService({
+      commitProjectPathChanges: async (projectPaths = []) => {
+        await watchdog.applyProjectPathChanges(projectPaths);
+      },
+      ensureUserAuthState,
       projectRoot: bootstrap.projectRoot,
       runtimeParams: bootstrap.runtimeParams,
       stateSystem: primaryStateSystem,
@@ -728,6 +823,12 @@ async function startClusteredServer(overrides = {}) {
 
               payload = {
                 delta: result.delta || null,
+                lazyFileIndexInvalidations: Array.isArray(result.lazyFileIndexInvalidations)
+                  ? result.lazyFileIndexInvalidations
+                  : [],
+                lazyFileIndexShards: Array.isArray(result.lazyFileIndexShards)
+                  ? result.lazyFileIndexShards
+                  : [],
                 projectPaths: result.projectPaths || [],
                 snapshot: result.snapshot || null,
                 version: result.version
@@ -735,12 +836,14 @@ async function startClusteredServer(overrides = {}) {
 
               if (payload.snapshot) {
                 broadcastMessage({
+                  lazyFileIndexInvalidations: payload.lazyFileIndexInvalidations,
                   snapshot: payload.snapshot,
                   type: IPC_MESSAGE_TYPES.STATE_SNAPSHOT
                 });
-              } else if (payload.delta) {
+              } else if (payload.delta || payload.lazyFileIndexInvalidations.length > 0) {
                 broadcastMessage({
                   delta: payload.delta,
+                  lazyFileIndexInvalidations: payload.lazyFileIndexInvalidations,
                   projectPaths: payload.projectPaths,
                   type: IPC_MESSAGE_TYPES.STATE_DELTA
                 });
@@ -760,6 +863,20 @@ async function startClusteredServer(overrides = {}) {
 
             case "getEntry":
               payload = primaryStateSystem.getEntry(message.payload?.area, message.payload?.id);
+              break;
+
+            case "ensureFileIndexShardLoaded":
+              payload = await watchdog.ensureFileIndexShardLoaded(
+                message.payload?.shardId,
+                message.payload?.options || {}
+              );
+              break;
+
+            case "ensureUserAuthStateLoaded":
+              payload = await watchdog.ensureUserAuthStateLoaded(
+                message.payload?.username,
+                message.payload?.options || {}
+              );
               break;
 
             case "getSnapshot":
@@ -850,9 +967,15 @@ async function startClusteredServer(overrides = {}) {
         return;
       }
 
-      if (event.type === "delta" && event.delta) {
+      if (
+        event.type === "delta" &&
+        (event.delta ||
+          (Array.isArray(event.lazyFileIndexInvalidations) &&
+            event.lazyFileIndexInvalidations.length > 0))
+      ) {
         broadcastMessage({
           delta: event.delta,
+          lazyFileIndexInvalidations: event.lazyFileIndexInvalidations,
           projectPaths: event.projectPaths,
           type: IPC_MESSAGE_TYPES.STATE_DELTA
         });
@@ -861,6 +984,7 @@ async function startClusteredServer(overrides = {}) {
 
       if (event.type === "snapshot" && event.snapshot) {
         broadcastMessage({
+          lazyFileIndexInvalidations: event.lazyFileIndexInvalidations,
           snapshot: event.snapshot,
           type: IPC_MESSAGE_TYPES.STATE_SNAPSHOT
         });
